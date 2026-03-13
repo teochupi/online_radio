@@ -62,6 +62,17 @@ function mapToStation(station: RadioBrowserStation): Station {
   };
 }
 
+function isLikelyWebPlayable(station: RadioBrowserStation): boolean {
+  const url = station.url_resolved?.trim();
+  if (!url || !url.startsWith("https://")) {
+    return false;
+  }
+
+  const codec = station.codec?.toLowerCase() ?? "";
+  const supportedCodecs = ["mp3", "aac", "aac+", "ogg"];
+  return supportedCodecs.some((item) => codec.includes(item));
+}
+
 function streamProxyUrl(rawStreamUrl: string): string {
   if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
     return rawStreamUrl;
@@ -94,7 +105,9 @@ export default function App() {
         const payload = (await response.json()) as RadioBrowserStation[];
         const clean = payload
           .filter((item) => item.url_resolved && item.name)
+          .filter(isLikelyWebPlayable)
           .filter((item) => item.bitrate === 0 || item.bitrate <= 320)
+          .filter((item, index, all) => all.findIndex((candidate) => candidate.url_resolved === item.url_resolved) === index)
           .map(mapToStation);
 
         if (!disposed && clean.length > 0) {
