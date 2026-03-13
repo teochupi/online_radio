@@ -136,6 +136,7 @@ export default function App() {
   const reconnectAttemptsRef = useRef(0);
   const lastProgressAtRef = useRef(0);
   const lastProgressPositionRef = useRef(0);
+  const lastRequestedStationRef = useRef<Station | null>(FALLBACK_STATIONS[0]);
   const userStoppedRef = useRef(false);
   const shouldAutoResumeRef = useRef(false);
   const [isMobileDataConnection, setIsMobileDataConnection] = useState(false);
@@ -256,6 +257,10 @@ export default function App() {
     return stations.find((station) => station.id === playingId) ?? null;
   }, [playingId, stations]);
 
+  const getRecoveryStation = () => {
+    return playingStation ?? lastRequestedStationRef.current ?? currentStation ?? null;
+  };
+
   const clearReconnectTimer = () => {
     if (reconnectTimerRef.current) {
       window.clearTimeout(reconnectTimerRef.current);
@@ -284,6 +289,7 @@ export default function App() {
     }
 
     setSelectedId(station.id);
+    lastRequestedStationRef.current = station;
     setPlaybackError(null);
 
     if (!isReconnect) {
@@ -305,6 +311,10 @@ export default function App() {
       setPlaybackError(null);
       shouldAutoResumeRef.current = false;
     } catch {
+      if (!userStoppedRef.current) {
+        scheduleReconnect(station);
+        return;
+      }
       setPlayingId(null);
       setPlaybackError("Тази станция в момента не може да бъде стартирана.");
     }
@@ -571,25 +581,29 @@ export default function App() {
           }
         }}
         onWaiting={() => {
-          if (playingStation && !userStoppedRef.current) {
-            scheduleReconnectAfterBuffering(playingStation);
+          const station = getRecoveryStation();
+          if (station && !userStoppedRef.current) {
+            scheduleReconnectAfterBuffering(station);
           }
         }}
         onEnded={() => {
-          if (playingStation && !userStoppedRef.current) {
-            scheduleReconnect(playingStation);
+          const station = getRecoveryStation();
+          if (station && !userStoppedRef.current) {
+            scheduleReconnect(station);
             return;
           }
           setPlayingId(null);
         }}
         onStalled={() => {
-          if (playingStation && !userStoppedRef.current) {
-            scheduleReconnectAfterBuffering(playingStation);
+          const station = getRecoveryStation();
+          if (station && !userStoppedRef.current) {
+            scheduleReconnectAfterBuffering(station);
           }
         }}
         onError={() => {
-          if (playingStation && !userStoppedRef.current) {
-            scheduleReconnect(playingStation);
+          const station = getRecoveryStation();
+          if (station && !userStoppedRef.current) {
+            scheduleReconnect(station);
             return;
           }
           setPlayingId(null);
