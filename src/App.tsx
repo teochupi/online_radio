@@ -146,6 +146,7 @@ export default function App() {
   const lastProgressPositionRef = useRef(0);
   const lastRequestedStationRef = useRef<Station | null>(FALLBACK_STATIONS[0]);
   const selectedStreamIndexByStationRef = useRef<Record<string, number>>({});
+  const reconnectRefreshPhaseByStationRef = useRef<Record<string, number>>({});
   const currentStreamUrlByStationRef = useRef<Record<string, string>>({});
   const badStreamUntilRef = useRef<Record<string, number>>({});
   const hasUserInitiatedPlaybackRef = useRef(false);
@@ -359,16 +360,33 @@ export default function App() {
       clearStallTimer();
       clearPauseRecoveryTimer();
       selectedStreamIndexByStationRef.current[station.id] = 0;
+      reconnectRefreshPhaseByStationRef.current[station.id] = 0;
     }
 
     const streamPoolKey = stationNameKey(station.name);
     const streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
-    let nextPoolIndex = isReconnect
-      ? (currentPoolIndex + 1) % Math.max(streamPool.length, 1)
-      : currentPoolIndex;
+    let nextPoolIndex = currentPoolIndex;
+    let shouldRotateOnReconnect = isReconnect;
 
-    if (streamPool.length > 1) {
+    if (isReconnect && streamPool.length > 1) {
+      const reconnectPhase = reconnectRefreshPhaseByStationRef.current[station.id] ?? 0;
+
+      if (reconnectPhase === 0) {
+        // First reconnect attempt: refresh the same endpoint with cache-busting params.
+        shouldRotateOnReconnect = false;
+        reconnectRefreshPhaseByStationRef.current[station.id] = 1;
+      } else {
+        shouldRotateOnReconnect = true;
+        reconnectRefreshPhaseByStationRef.current[station.id] = 0;
+      }
+    }
+
+    if (shouldRotateOnReconnect) {
+      nextPoolIndex = (currentPoolIndex + 1) % Math.max(streamPool.length, 1);
+    }
+
+    if (shouldRotateOnReconnect && streamPool.length > 1) {
       for (let offset = 0; offset < streamPool.length; offset += 1) {
         const candidateIndex = (nextPoolIndex + offset) % streamPool.length;
         const candidateUrl = streamPool[candidateIndex];
@@ -396,6 +414,7 @@ export default function App() {
       setPlayingId(station.id);
       setPlaybackError(null);
       shouldAutoResumeRef.current = false;
+      reconnectRefreshPhaseByStationRef.current[station.id] = 0;
     } catch {
       if (!userStoppedRef.current) {
         scheduleReconnect(station);
