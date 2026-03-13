@@ -132,7 +132,6 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const stallTimerRef = useRef<number | null>(null);
-  const bufferingNoticeTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const lastProgressAtRef = useRef(0);
   const lastProgressPositionRef = useRef(0);
@@ -270,13 +269,6 @@ export default function App() {
     }
   };
 
-  const clearBufferingNoticeTimer = () => {
-    if (bufferingNoticeTimerRef.current) {
-      window.clearTimeout(bufferingNoticeTimerRef.current);
-      bufferingNoticeTimerRef.current = null;
-    }
-  };
-
   const playStation = async (station: Station, isReconnect = false) => {
     const audio = audioRef.current;
     if (!audio) {
@@ -338,20 +330,10 @@ export default function App() {
       return;
     }
 
-    const bufferingMessage = "Буфериране... Опит за стабилизиране на връзката.";
-    const noticeDelayMs = isMobileDataConnection ? 3500 : 1500;
-
-    clearBufferingNoticeTimer();
-    bufferingNoticeTimerRef.current = window.setTimeout(() => {
-      bufferingNoticeTimerRef.current = null;
-      setPlaybackError((prev) => (prev ? prev : bufferingMessage));
-    }, noticeDelayMs);
-
     // On mobile data we tolerate longer buffering to avoid aggressive reconnect loops.
     const stallDelayMs = isMobileDataConnection ? 15000 : 9000;
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
-      clearBufferingNoticeTimer();
 
       const audio = audioRef.current;
       if (audio && !audio.paused) {
@@ -360,9 +342,6 @@ export default function App() {
           Date.now() - lastProgressAtRef.current < (isMobileDataConnection ? 8000 : 5000);
 
         if (progressedRecently) {
-          setPlaybackError((prev) =>
-            prev === bufferingMessage ? null : prev
-          );
           return;
         }
       }
@@ -397,7 +376,6 @@ export default function App() {
     return () => {
       clearReconnectTimer();
       clearStallTimer();
-      clearBufferingNoticeTimer();
     };
   }, []);
 
@@ -498,7 +476,6 @@ export default function App() {
           reconnectAttemptsRef.current = 0;
           setPlaybackError(null);
           shouldAutoResumeRef.current = false;
-          clearBufferingNoticeTimer();
           const audio = audioRef.current;
           if (audio) {
             lastProgressAtRef.current = Date.now();
@@ -519,16 +496,11 @@ export default function App() {
           }
         }}
         onProgress={() => {
-          const bufferingMessage = "Буфериране... Опит за стабилизиране на връзката.";
           const audio = audioRef.current;
           if (audio) {
             lastProgressAtRef.current = Date.now();
             lastProgressPositionRef.current = audio.currentTime;
           }
-          clearBufferingNoticeTimer();
-          setPlaybackError((prev) =>
-            prev === bufferingMessage ? null : prev
-          );
           if (stallTimerRef.current) {
             clearStallTimer();
             setPlaybackError(null);
