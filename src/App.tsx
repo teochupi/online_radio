@@ -15,6 +15,7 @@ type Station = {
   name: string;
   genre: string;
   streamUrl: string;
+  bitrate: number;
 };
 
 const STATIONS_BG_API_URL =
@@ -63,6 +64,7 @@ function mapToStation(station: RadioBrowserStation): Station {
     name: station.name || "Без име",
     genre,
     streamUrl: station.url_resolved,
+    bitrate: station.bitrate ?? 0,
   };
 }
 
@@ -83,13 +85,25 @@ function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean
 
 function normalizeStations(
   stations: RadioBrowserStation[],
-  requireHttps: boolean
+  requireHttps: boolean,
+  dataSaverMode: boolean
 ): Station[] {
+  const maxBitrate = dataSaverMode ? 128 : 320;
   return stations
     .filter((item) => item.url_resolved && item.name)
     .filter((item) => isLikelyWebPlayable(item, requireHttps))
+    .filter((item) => item.bitrate === 0 || item.bitrate <= maxBitrate)
     .filter((item, index, all) => all.findIndex((candidate) => candidate.url_resolved === item.url_resolved) === index)
-    .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))
+    .sort((a, b) => {
+      const voteSort = (b.votes ?? 0) - (a.votes ?? 0);
+      if (voteSort !== 0) {
+        return voteSort;
+      }
+
+      const aBitrate = a.bitrate === 0 ? 999 : a.bitrate;
+      const bBitrate = b.bitrate === 0 ? 999 : b.bitrate;
+      return aBitrate - bBitrate;
+    })
     .slice(0, 80)
     .map(mapToStation);
 }
@@ -103,6 +117,8 @@ function streamProxyUrl(rawStreamUrl: string): string {
 
 export default function App() {
   const [stations, setStations] = useState<Station[]>(FALLBACK_STATIONS);
+  const [allStations, setAllStations] = useState<RadioBrowserStation[]>([]);
+  const [dataSaverMode, setDataSaverMode] = useState(false);
   const [selectedId, setSelectedId] = useState(FALLBACK_STATIONS[0].id);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -112,15 +128,33 @@ export default function App() {
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const userStoppedRef = useRef(false);
+  const requireHttps =
+    typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") {
+      return;
+    }
+
+    const connection = (navigator as any).connection;
+    if (!connection) {
+      return;
+    }
+
+    const prefersDataSaving =
+      Boolean(connection.saveData) ||
+      ["slow-2g", "2g", "3g"].includes(String(connection.effectiveType || ""));
+
+    if (prefersDataSaving) {
+      setDataSaverMode(true);
+    }
+  }, []);
 
   useEffect(() => {
     let disposed = false;
 
     async function loadStations() {
       try {
-        const requireHttps =
-          typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
-
         const [byCountryResponse, byLanguageResponse] = await Promise.all([
           fetch(STATIONS_BG_API_URL),
           fetch(STATIONS_BG_LANGUAGE_API_URL),
@@ -138,11 +172,9 @@ export default function App() {
           : [];
 
         const merged = [...byCountryPayload, ...byLanguagePayload];
-        const clean = normalizeStations(merged, requireHttps);
 
-        if (!disposed && clean.length > 0) {
-          setStations(clean);
-          setSelectedId(clean[0].id);
+        if (!disposed) {
+          setAllStations(merged);
           setLoadError(null);
         }
       } catch {
@@ -162,6 +194,27 @@ export default function App() {
       disposed = true;
     };
   }, []);
+
+  useEffect(() => {
+    const clean = normalizeStations(allStations, requireHttps, dataSaverMode);
+
+    if (clean.length > 0) {
+      setStations(clean);
+      return;
+    }
+
+    setStations(FALLBACK_STATIONS);
+  }, [allStations, dataSaverMode, requireHttps]);
+
+  useEffect(() => {
+    if (stations.some((station) => station.id === selectedId)) {
+      return;
+    }
+
+    if (stations[0]) {
+      setSelectedId(stations[0].id);
+    }
+  }, [stations, selectedId]);
 
   const currentStation = useMemo(
     () => stations.find((station) => station.id === selectedId) ?? stations[0],
@@ -303,6 +356,16 @@ export default function App() {
           <p className="hero-subtitle">
           Слушайте български радиостанции на живо.
           </p>
+          <div className="toolbar-row">
+            <button
+              type="button"
+              className={`toggle-chip ${dataSaverMode ? "toggle-chip-on" : ""}`}
+              onClick={() => setDataSaverMode((prev) => !prev)}
+              aria-pressed={dataSaverMode}
+            >
+              {dataSaverMode ? "Пестене на данни: ВКЛ." : "Пестене на данни: ИЗКЛ."}
+            </button>
+          </div>
           <div className="status-row" role="status" aria-live="polite">
             <span className="status-dot" />
             <span>
@@ -314,6 +377,7 @@ export default function App() {
             </span>
           </div>
           {isLoading && <p className="state-note">Зареждане на станции...</p>}
+          {dataSaverMode && <p className="state-note">Режимът за пестене на мобилни данни е активен (по-нисък битрейт).</p>}
           {loadError && <p className="state-note state-note-error">{loadError}</p>}
           {playbackError && <p className="state-note state-note-error">{playbackError}</p>}
         </header>

@@ -70,6 +70,27 @@ body {
   font-size: 1.03rem;
 }
 
+.toolbar-row {
+  margin-top: 0.8rem;
+}
+
+.toggle-chip {
+  border: 1px solid rgba(124, 176, 219, 0.5);
+  border-radius: 999px;
+  background: rgba(10, 36, 63, 0.45);
+  color: #cde9ff;
+  padding: 0.34rem 0.72rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.toggle-chip-on {
+  border-color: rgba(98, 230, 179, 0.65);
+  background: rgba(18, 72, 64, 0.45);
+  color: #d9fff1;
+}
+
 .status-row {
   margin-top: 0.95rem;
   display: inline-flex;
@@ -196,6 +217,12 @@ body {
     justify-content: flex-start;
     align-items: flex-start;
     text-align: left;
+  }
+
+  .toggle-chip {
+    width: 100%;
+    text-align: center;
+    padding: 0.54rem 0.72rem;
   }
 
   .status-row span:last-child {
