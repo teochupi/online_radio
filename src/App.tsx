@@ -128,6 +128,7 @@ export default function App() {
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const userStoppedRef = useRef(false);
+  const shouldAutoResumeRef = useRef(false);
   const requireHttps =
     typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
 
@@ -264,6 +265,7 @@ export default function App() {
       await audio.play();
       setPlayingId(station.id);
       setPlaybackError(null);
+      shouldAutoResumeRef.current = false;
     } catch {
       setPlayingId(null);
       setPlaybackError("Тази станция в момента не може да бъде стартирана.");
@@ -302,6 +304,7 @@ export default function App() {
 
     if (playingId === station.id) {
       userStoppedRef.current = true;
+      shouldAutoResumeRef.current = false;
       clearReconnectTimer();
       audio.pause();
       setPlayingId(null);
@@ -318,14 +321,99 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const onVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        shouldAutoResumeRef.current &&
+        playingStation &&
+        !userStoppedRef.current
+      ) {
+        playStation(playingStation, true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [playingStation]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
+      return;
+    }
+
+    const mediaSession = navigator.mediaSession;
+
+    if (!playingStation) {
+      mediaSession.playbackState = "none";
+      return;
+    }
+
+    mediaSession.metadata = new MediaMetadata({
+      title: playingStation.name,
+      artist: "RadioBG Online",
+      album: playingStation.genre,
+      artwork: [
+        { src: "./pwa-192.svg", sizes: "192x192", type: "image/svg+xml" },
+        { src: "./pwa-512.svg", sizes: "512x512", type: "image/svg+xml" },
+      ],
+    });
+
+    mediaSession.playbackState = playingId ? "playing" : "paused";
+
+    mediaSession.setActionHandler("play", () => {
+      playStation(playingStation, true);
+    });
+
+    mediaSession.setActionHandler("pause", () => {
+      const audio = audioRef.current;
+      if (!audio) {
+        return;
+      }
+      userStoppedRef.current = true;
+      shouldAutoResumeRef.current = false;
+      audio.pause();
+      setPlayingId(null);
+    });
+
+    mediaSession.setActionHandler("stop", () => {
+      const audio = audioRef.current;
+      if (!audio) {
+        return;
+      }
+      userStoppedRef.current = true;
+      shouldAutoResumeRef.current = false;
+      audio.pause();
+      setPlayingId(null);
+    });
+
+    return () => {
+      mediaSession.setActionHandler("play", null);
+      mediaSession.setActionHandler("pause", null);
+      mediaSession.setActionHandler("stop", null);
+    };
+  }, [playingStation, playingId]);
+
   return (
     <main className="app-shell">
       <audio
         ref={audioRef}
         preload="none"
+        onPause={() => {
+          if (!userStoppedRef.current && playingStation) {
+            shouldAutoResumeRef.current = true;
+          }
+        }}
         onPlaying={() => {
           reconnectAttemptsRef.current = 0;
           setPlaybackError(null);
+          shouldAutoResumeRef.current = false;
         }}
         onEnded={() => {
           if (playingStation && !userStoppedRef.current) {
