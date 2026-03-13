@@ -63,6 +63,9 @@ function mapToStation(station: RadioBrowserStation): Station {
 }
 
 function streamProxyUrl(rawStreamUrl: string): string {
+  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
+    return rawStreamUrl;
+  }
   return `/api/stream?url=${encodeURIComponent(rawStreamUrl)}`;
 }
 
