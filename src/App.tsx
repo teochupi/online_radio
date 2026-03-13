@@ -73,6 +73,14 @@ function mapToStation(station: RadioBrowserStation): Station {
   };
 }
 
+function stationNameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^\p{L}\p{N} ]/gu, "")
+    .trim();
+}
+
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
   const url = station.url_resolved?.trim();
   if (!url) {
@@ -137,6 +145,7 @@ export default function App() {
   const lastProgressAtRef = useRef(0);
   const lastProgressPositionRef = useRef(0);
   const lastRequestedStationRef = useRef<Station | null>(FALLBACK_STATIONS[0]);
+  const selectedStreamIndexByStationRef = useRef<Record<string, number>>({});
   const hasUserInitiatedPlaybackRef = useRef(false);
   const userStoppedRef = useRef(false);
   const shouldAutoResumeRef = useRef(false);
@@ -229,6 +238,45 @@ export default function App() {
     setStations(FALLBACK_STATIONS);
   }, [allStations, dataSaverMode, requireHttps]);
 
+  const stationStreamPools = useMemo(() => {
+    const poolMaxBitrate = isMobileDataConnection ? 192 : 320;
+    const entries = allStations
+      .filter((item) => item.url_resolved && item.name)
+      .filter((item) => isLikelyWebPlayable(item, requireHttps))
+      .filter((item) => item.bitrate === 0 || item.bitrate <= poolMaxBitrate)
+      .slice()
+      .sort((a, b) => {
+        const aBitrate = a.bitrate === 0 ? 999 : a.bitrate;
+        const bBitrate = b.bitrate === 0 ? 999 : b.bitrate;
+        if (aBitrate !== bBitrate) {
+          return aBitrate - bBitrate;
+        }
+
+        return (b.votes ?? 0) - (a.votes ?? 0);
+      });
+
+    const grouped = new Map<string, string[]>();
+    for (const station of entries) {
+      const key = stationNameKey(station.name || "");
+      if (!key) {
+        continue;
+      }
+
+      const nextUrl = station.url_resolved.trim();
+      if (!nextUrl) {
+        continue;
+      }
+
+      const current = grouped.get(key) ?? [];
+      if (!current.includes(nextUrl)) {
+        current.push(nextUrl);
+        grouped.set(key, current);
+      }
+    }
+
+    return grouped;
+  }, [allStations, requireHttps, isMobileDataConnection]);
+
   useEffect(() => {
     if (stations.some((station) => station.id === selectedId)) {
       return;
@@ -298,9 +346,20 @@ export default function App() {
       clearReconnectTimer();
       clearStallTimer();
       clearPauseRecoveryTimer();
+      selectedStreamIndexByStationRef.current[station.id] = 0;
     }
 
-    const baseSrc = streamProxyUrl(station.streamUrl);
+    const streamPoolKey = stationNameKey(station.name);
+    const streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
+    const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
+    const nextPoolIndex = isReconnect
+      ? (currentPoolIndex + 1) % Math.max(streamPool.length, 1)
+      : currentPoolIndex;
+
+    selectedStreamIndexByStationRef.current[station.id] = nextPoolIndex;
+
+    const chosenStreamUrl = streamPool[nextPoolIndex] ?? station.streamUrl;
+    const baseSrc = streamProxyUrl(chosenStreamUrl);
     const nextSrc = isReconnect
       ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
       : baseSrc;
