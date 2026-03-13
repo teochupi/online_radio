@@ -293,8 +293,10 @@ export default function App() {
       clearPauseRecoveryTimer();
     }
 
-    const retrySuffix = isReconnect ? `&retry=${Date.now()}` : "";
-    const nextSrc = `${streamProxyUrl(station.streamUrl)}${retrySuffix}`;
+    const baseSrc = streamProxyUrl(station.streamUrl);
+    const nextSrc = isReconnect
+      ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
+      : baseSrc;
     audio.src = nextSrc;
 
     try {
