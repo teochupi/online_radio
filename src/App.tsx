@@ -68,9 +68,9 @@ function isLikelyWebPlayable(station: RadioBrowserStation): boolean {
     return false;
   }
 
-  const codec = station.codec?.toLowerCase() ?? "";
-  const supportedCodecs = ["mp3", "aac", "aac+", "ogg"];
-  return supportedCodecs.some((item) => codec.includes(item));
+  // On GitHub Pages we can only play secure streams due to browser mixed-content rules.
+  // Codec metadata in the API is often missing/inconsistent, so we avoid strict codec filtering.
+  return true;
 }
 
 function streamProxyUrl(rawStreamUrl: string): string {
