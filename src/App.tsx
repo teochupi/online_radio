@@ -146,6 +146,8 @@ export default function App() {
   const lastProgressPositionRef = useRef(0);
   const lastRequestedStationRef = useRef<Station | null>(FALLBACK_STATIONS[0]);
   const selectedStreamIndexByStationRef = useRef<Record<string, number>>({});
+  const currentStreamUrlByStationRef = useRef<Record<string, string>>({});
+  const badStreamUntilRef = useRef<Record<string, number>>({});
   const hasUserInitiatedPlaybackRef = useRef(false);
   const userStoppedRef = useRef(false);
   const shouldAutoResumeRef = useRef(false);
@@ -331,6 +333,16 @@ export default function App() {
     }
   };
 
+  const markCurrentStreamAsTemporarilyBad = (station: Station) => {
+    const currentUrl = currentStreamUrlByStationRef.current[station.id];
+    if (!currentUrl) {
+      return;
+    }
+
+    // Ad transition failures are often endpoint-specific and short-lived.
+    badStreamUntilRef.current[currentUrl] = Date.now() + 2 * 60 * 1000;
+  };
+
   const playStation = async (station: Station, isReconnect = false) => {
     const audio = audioRef.current;
     if (!audio) {
@@ -352,18 +364,32 @@ export default function App() {
     const streamPoolKey = stationNameKey(station.name);
     const streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
-    const nextPoolIndex = isReconnect
+    let nextPoolIndex = isReconnect
       ? (currentPoolIndex + 1) % Math.max(streamPool.length, 1)
       : currentPoolIndex;
+
+    if (streamPool.length > 1) {
+      for (let offset = 0; offset < streamPool.length; offset += 1) {
+        const candidateIndex = (nextPoolIndex + offset) % streamPool.length;
+        const candidateUrl = streamPool[candidateIndex];
+        const blockedUntil = badStreamUntilRef.current[candidateUrl] ?? 0;
+        if (blockedUntil <= Date.now()) {
+          nextPoolIndex = candidateIndex;
+          break;
+        }
+      }
+    }
 
     selectedStreamIndexByStationRef.current[station.id] = nextPoolIndex;
 
     const chosenStreamUrl = streamPool[nextPoolIndex] ?? station.streamUrl;
+    currentStreamUrlByStationRef.current[station.id] = chosenStreamUrl;
     const baseSrc = streamProxyUrl(chosenStreamUrl);
     const nextSrc = isReconnect
       ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
       : baseSrc;
     audio.src = nextSrc;
+    audio.load();
 
     try {
       await audio.play();
@@ -385,6 +411,7 @@ export default function App() {
       return;
     }
 
+    markCurrentStreamAsTemporarilyBad(station);
     clearStallTimer();
 
     const maxRetries = isMobileDataConnection ? 7 : 4;
@@ -478,8 +505,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const recoveryStation = getRecoveryStation();
-    if (!recoveryStation || !hasUserInitiatedPlaybackRef.current) {
+    if (!hasUserInitiatedPlaybackRef.current) {
       return;
     }
 
@@ -497,6 +523,11 @@ export default function App() {
       }
 
       if (reconnectTimerRef.current || stallTimerRef.current || pauseRecoveryTimerRef.current) {
+        return;
+      }
+
+      const recoveryStation = getRecoveryStation();
+      if (!recoveryStation) {
         return;
       }
 
@@ -606,7 +637,8 @@ export default function App() {
         ref={audioRef}
         preload="none"
         onPause={() => {
-          if (!userStoppedRef.current && playingStation) {
+          const recoveryStation = getRecoveryStation();
+          if (!userStoppedRef.current && recoveryStation) {
             shouldAutoResumeRef.current = true;
 
             clearPauseRecoveryTimer();
@@ -618,7 +650,7 @@ export default function App() {
               }
 
               if (audio.paused) {
-                scheduleReconnect(playingStation);
+                scheduleReconnect(recoveryStation);
               }
             }, isMobileDataConnection ? 800 : 1800);
           }
