@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import { VitePWA } from "vite-plugin-pwa";
 
 function streamProxyPlugin() {
   const handler = async (req: any, res: any) => {
@@ -101,7 +102,59 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  plugins: [react(), streamProxyPlugin(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    react(),
+    streamProxyPlugin(),
+    VitePWA({
+      registerType: "autoUpdate",
+      injectRegister: "auto",
+      includeAssets: ["apple-touch-icon.svg"],
+      manifest: {
+        name: "RadioBG Online",
+        short_name: "RadioBG",
+        description: "Слушайте български радиостанции на живо.",
+        theme_color: "#0d1c33",
+        background_color: "#071223",
+        display: "standalone",
+        lang: "bg",
+        start_url: "./",
+        scope: "./",
+        icons: [
+          {
+            src: "pwa-192.svg",
+            sizes: "192x192",
+            type: "image/svg+xml",
+            purpose: "any",
+          },
+          {
+            src: "pwa-512.svg",
+            sizes: "512x512",
+            type: "image/svg+xml",
+            purpose: "any maskable",
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
+        navigateFallback: "index.html",
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/.*\.api\.radio-browser\.info\/.*$/i,
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "radio-browser-api-cache",
+              networkTimeoutSeconds: 4,
+              expiration: {
+                maxEntries: 24,
+                maxAgeSeconds: 60 * 60,
+              },
+            },
+          },
+        ],
+      },
+    }),
+    mode === "development" && componentTagger(),
+  ].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
