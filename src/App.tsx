@@ -131,6 +131,7 @@ export default function App() {
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const reconnectTimerRef = useRef<number | null>(null);
+  const stallTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const userStoppedRef = useRef(false);
   const shouldAutoResumeRef = useRef(false);
@@ -248,6 +249,13 @@ export default function App() {
     }
   };
 
+  const clearStallTimer = () => {
+    if (stallTimerRef.current) {
+      window.clearTimeout(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+  };
+
   const playStation = async (station: Station, isReconnect = false) => {
     const audio = audioRef.current;
     if (!audio) {
@@ -260,6 +268,7 @@ export default function App() {
     if (!isReconnect) {
       reconnectAttemptsRef.current = 0;
       clearReconnectTimer();
+      clearStallTimer();
     }
 
     const retrySuffix = isReconnect ? `&retry=${Date.now()}` : "";
@@ -282,6 +291,8 @@ export default function App() {
       return;
     }
 
+    clearStallTimer();
+
     const maxRetries = 4;
     if (reconnectAttemptsRef.current >= maxRetries) {
       setPlaybackError("Връзката към станцията е нестабилна. Опитайте друга станция.");
@@ -299,6 +310,20 @@ export default function App() {
     }, delay);
   };
 
+  const scheduleReconnectAfterBuffering = (station: Station) => {
+    if (userStoppedRef.current || stallTimerRef.current) {
+      return;
+    }
+
+    // Give mobile networks a short window to recover before forcing a reconnect.
+    const stallDelayMs = 9000;
+    setPlaybackError("Буфериране... Опит за стабилизиране на връзката.");
+    stallTimerRef.current = window.setTimeout(() => {
+      stallTimerRef.current = null;
+      scheduleReconnect(station);
+    }, stallDelayMs);
+  };
+
   const handlePlayToggle = async (station: Station) => {
     const audio = audioRef.current;
     if (!audio) {
@@ -311,6 +336,7 @@ export default function App() {
       userStoppedRef.current = true;
       shouldAutoResumeRef.current = false;
       clearReconnectTimer();
+      clearStallTimer();
       audio.pause();
       setPlayingId(null);
       setPlaybackError(null);
@@ -323,6 +349,7 @@ export default function App() {
   useEffect(() => {
     return () => {
       clearReconnectTimer();
+      clearStallTimer();
     };
   }, []);
 
@@ -383,6 +410,8 @@ export default function App() {
       }
       userStoppedRef.current = true;
       shouldAutoResumeRef.current = false;
+      clearReconnectTimer();
+      clearStallTimer();
       audio.pause();
       setPlayingId(null);
     });
@@ -394,6 +423,8 @@ export default function App() {
       }
       userStoppedRef.current = true;
       shouldAutoResumeRef.current = false;
+      clearReconnectTimer();
+      clearStallTimer();
       audio.pause();
       setPlayingId(null);
     });
@@ -419,6 +450,18 @@ export default function App() {
           reconnectAttemptsRef.current = 0;
           setPlaybackError(null);
           shouldAutoResumeRef.current = false;
+          clearStallTimer();
+        }}
+        onProgress={() => {
+          if (stallTimerRef.current) {
+            clearStallTimer();
+            setPlaybackError(null);
+          }
+        }}
+        onWaiting={() => {
+          if (playingStation && !userStoppedRef.current) {
+            scheduleReconnectAfterBuffering(playingStation);
+          }
         }}
         onEnded={() => {
           if (playingStation && !userStoppedRef.current) {
@@ -429,7 +472,7 @@ export default function App() {
         }}
         onStalled={() => {
           if (playingStation && !userStoppedRef.current) {
-            scheduleReconnect(playingStation);
+            scheduleReconnectAfterBuffering(playingStation);
           }
         }}
         onError={() => {
