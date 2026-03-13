@@ -30,30 +30,35 @@ const FALLBACK_STATIONS: Station[] = [
     name: "БНР Хоризонт",
     genre: "Новини",
     streamUrl: "https://stream.bnr.bg/horizont.mp3",
+    bitrate: 128,
   },
   {
     id: "fallback-2",
     name: "БНР Христо Ботев",
     genre: "Култура",
     streamUrl: "https://stream.bnr.bg/botev.mp3",
+    bitrate: 128,
   },
   {
     id: "fallback-3",
     name: "Дарик Радио",
     genre: "Talk",
     streamUrl: "https://darikradio.by.host.bg:8000/S2-128",
+    bitrate: 128,
   },
   {
     id: "fallback-4",
     name: "N-JOY",
     genre: "Поп",
     streamUrl: "https://live-radio.btv.bg:8001/njoy.mp3",
+    bitrate: 128,
   },
   {
     id: "fallback-5",
     name: "Z-Rock",
     genre: "Рок",
     streamUrl: "https://live-radio.btv.bg:8001/zrock.mp3",
+    bitrate: 128,
   },
 ];
 
