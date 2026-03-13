@@ -133,8 +133,11 @@ export default function App() {
   const reconnectTimerRef = useRef<number | null>(null);
   const stallTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const lastProgressAtRef = useRef(0);
+  const lastProgressPositionRef = useRef(0);
   const userStoppedRef = useRef(false);
   const shouldAutoResumeRef = useRef(false);
+  const [isMobileDataConnection, setIsMobileDataConnection] = useState(false);
   const requireHttps =
     typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
 
@@ -148,13 +151,23 @@ export default function App() {
       return;
     }
 
-    const prefersDataSaving =
-      Boolean(connection.saveData) ||
-      ["slow-2g", "2g", "3g"].includes(String(connection.effectiveType || ""));
+    const updateConnectionFlags = () => {
+      const effectiveType = String(connection.effectiveType || "");
+      const isCellularLike = ["slow-2g", "2g", "3g", "4g"].includes(effectiveType);
+      const prefersDataSaving = Boolean(connection.saveData) || isCellularLike;
 
-    if (prefersDataSaving) {
-      setDataSaverMode(true);
-    }
+      setIsMobileDataConnection(isCellularLike);
+      if (prefersDataSaving) {
+        setDataSaverMode(true);
+      }
+    };
+
+    updateConnectionFlags();
+    connection.addEventListener?.("change", updateConnectionFlags);
+
+    return () => {
+      connection.removeEventListener?.("change", updateConnectionFlags);
+    };
   }, []);
 
   useEffect(() => {
@@ -293,7 +306,7 @@ export default function App() {
 
     clearStallTimer();
 
-    const maxRetries = 4;
+    const maxRetries = isMobileDataConnection ? 7 : 4;
     if (reconnectAttemptsRef.current >= maxRetries) {
       setPlaybackError("Връзката към станцията е нестабилна. Опитайте друга станция.");
       setPlayingId(null);
@@ -302,7 +315,9 @@ export default function App() {
 
     reconnectAttemptsRef.current += 1;
     const attempt = reconnectAttemptsRef.current;
-    const delay = Math.min(1600 * attempt, 6000);
+    const delayBase = isMobileDataConnection ? 2400 : 1600;
+    const delayCeiling = isMobileDataConnection ? 12000 : 6000;
+    const delay = Math.min(delayBase * attempt, delayCeiling);
     setPlaybackError(`Възстановяване на потока... (${attempt}/${maxRetries})`);
     clearReconnectTimer();
     reconnectTimerRef.current = window.setTimeout(() => {
@@ -315,11 +330,24 @@ export default function App() {
       return;
     }
 
-    // Give mobile networks a short window to recover before forcing a reconnect.
-    const stallDelayMs = 9000;
+    // On mobile data we tolerate longer buffering to avoid aggressive reconnect loops.
+    const stallDelayMs = isMobileDataConnection ? 15000 : 9000;
     setPlaybackError("Буфериране... Опит за стабилизиране на връзката.");
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
+
+      const audio = audioRef.current;
+      if (audio && !audio.paused) {
+        const progressedRecently =
+          audio.currentTime > lastProgressPositionRef.current + 0.2 ||
+          Date.now() - lastProgressAtRef.current < (isMobileDataConnection ? 8000 : 5000);
+
+        if (progressedRecently) {
+          setPlaybackError(null);
+          return;
+        }
+      }
+
       scheduleReconnect(station);
     }, stallDelayMs);
   };
@@ -450,9 +478,31 @@ export default function App() {
           reconnectAttemptsRef.current = 0;
           setPlaybackError(null);
           shouldAutoResumeRef.current = false;
+          const audio = audioRef.current;
+          if (audio) {
+            lastProgressAtRef.current = Date.now();
+            lastProgressPositionRef.current = audio.currentTime;
+          }
           clearStallTimer();
         }}
+        onTimeUpdate={() => {
+          const audio = audioRef.current;
+          if (!audio) {
+            return;
+          }
+
+          // Track recent progress to distinguish slow buffering from a real stall.
+          if (audio.currentTime > lastProgressPositionRef.current + 0.15) {
+            lastProgressPositionRef.current = audio.currentTime;
+            lastProgressAtRef.current = Date.now();
+          }
+        }}
         onProgress={() => {
+          const audio = audioRef.current;
+          if (audio) {
+            lastProgressAtRef.current = Date.now();
+            lastProgressPositionRef.current = audio.currentTime;
+          }
           if (stallTimerRef.current) {
             clearStallTimer();
             setPlaybackError(null);
