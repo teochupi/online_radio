@@ -137,6 +137,7 @@ export default function App() {
   const lastProgressAtRef = useRef(0);
   const lastProgressPositionRef = useRef(0);
   const lastRequestedStationRef = useRef<Station | null>(FALLBACK_STATIONS[0]);
+  const hasUserInitiatedPlaybackRef = useRef(false);
   const userStoppedRef = useRef(false);
   const shouldAutoResumeRef = useRef(false);
   const [isMobileDataConnection, setIsMobileDataConnection] = useState(false);
@@ -329,6 +330,20 @@ export default function App() {
 
     const maxRetries = isMobileDataConnection ? 7 : 4;
     if (reconnectAttemptsRef.current >= maxRetries) {
+      if (isMobileDataConnection) {
+        const cooldownMs = 18000;
+        reconnectAttemptsRef.current = 0;
+        setPlaybackError("Нестабилна връзка. Нов опит след няколко секунди...");
+        clearReconnectTimer();
+        reconnectTimerRef.current = window.setTimeout(() => {
+          const recoveryStation = getRecoveryStation();
+          if (recoveryStation && !userStoppedRef.current) {
+            playStation(recoveryStation, true);
+          }
+        }, cooldownMs);
+        return;
+      }
+
       setPlaybackError("Връзката към станцията е нестабилна. Опитайте друга станция.");
       setPlayingId(null);
       return;
@@ -381,6 +396,7 @@ export default function App() {
 
     if (playingId === station.id) {
       userStoppedRef.current = true;
+      hasUserInitiatedPlaybackRef.current = false;
       shouldAutoResumeRef.current = false;
       clearReconnectTimer();
       clearStallTimer();
@@ -390,6 +406,7 @@ export default function App() {
       return;
     }
 
+    hasUserInitiatedPlaybackRef.current = true;
     await playStation(station);
   };
 
@@ -402,7 +419,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!playingStation) {
+    const recoveryStation = getRecoveryStation();
+    if (!recoveryStation || !hasUserInitiatedPlaybackRef.current) {
       return;
     }
 
@@ -424,19 +442,19 @@ export default function App() {
       }
 
       if (audio.paused) {
-        scheduleReconnect(playingStation);
+        scheduleReconnect(recoveryStation);
         return;
       }
 
       if (Date.now() - lastProgressAtRef.current > staleProgressMs) {
-        scheduleReconnectAfterBuffering(playingStation);
+        scheduleReconnectAfterBuffering(recoveryStation);
       }
     }, intervalMs);
 
     return () => {
       window.clearInterval(id);
     };
-  }, [playingStation, isMobileDataConnection]);
+  }, [playingStation, currentStation, isMobileDataConnection]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -494,6 +512,7 @@ export default function App() {
         return;
       }
       userStoppedRef.current = true;
+      hasUserInitiatedPlaybackRef.current = false;
       shouldAutoResumeRef.current = false;
       clearReconnectTimer();
       clearStallTimer();
@@ -507,6 +526,7 @@ export default function App() {
         return;
       }
       userStoppedRef.current = true;
+      hasUserInitiatedPlaybackRef.current = false;
       shouldAutoResumeRef.current = false;
       clearReconnectTimer();
       clearStallTimer();
