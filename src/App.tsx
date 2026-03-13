@@ -425,8 +425,8 @@ export default function App() {
       return;
     }
 
-    // On mobile data we tolerate longer buffering to avoid aggressive reconnect loops.
-    const stallDelayMs = isMobileDataConnection ? 15000 : 9000;
+    // On mobile keep stall window short: ad-transition stream breaks are brief.
+    const stallDelayMs = isMobileDataConnection ? 5000 : 9000;
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
 
@@ -620,20 +620,21 @@ export default function App() {
               if (audio.paused) {
                 scheduleReconnect(playingStation);
               }
-            }, 1800);
+            }, isMobileDataConnection ? 800 : 1800);
           }
         }}
         onPlaying={() => {
           reconnectAttemptsRef.current = 0;
           setPlaybackError(null);
           shouldAutoResumeRef.current = false;
+          clearReconnectTimer();
+          clearStallTimer();
           clearPauseRecoveryTimer();
           const audio = audioRef.current;
           if (audio) {
             lastProgressAtRef.current = Date.now();
             lastProgressPositionRef.current = audio.currentTime;
           }
-          clearStallTimer();
         }}
         onTimeUpdate={() => {
           const audio = audioRef.current;
