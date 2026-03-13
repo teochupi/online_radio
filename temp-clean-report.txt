@@ -1,0 +1,3 @@
+BeforeGB=0.68
+AfterGB=2.08
+FreedGB=1.4

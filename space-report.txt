@@ -1,0 +1,3 @@
+BeforeGB=0
+AfterGB=0.11
+FreedGB=0.11

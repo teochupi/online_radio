@@ -1,0 +1,215 @@
+:root {
+  --bg-deep: #071223;
+  --bg-mid: #0d1c33;
+  --bg-soft: #132b49;
+  --text-main: #f5f9ff;
+  --text-muted: #a8c0de;
+  --surface: rgba(12, 31, 54, 0.62);
+  --surface-strong: rgba(18, 47, 81, 0.9);
+  --border: rgba(135, 180, 232, 0.25);
+  --accent: #4ec0ff;
+  --accent-soft: rgba(78, 192, 255, 0.25);
+  --danger: #ff9aa5;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--text-main);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1000px 560px at 8% 5%, #20487a 0%, transparent 62%),
+    radial-gradient(920px 520px at 90% 90%, #0c3f67 0%, transparent 55%),
+    linear-gradient(130deg, var(--bg-mid) 0%, var(--bg-deep) 52%, #020914 100%);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 2rem 1rem 2.5rem;
+}
+
+.app-panel {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: linear-gradient(155deg, rgba(19, 44, 73, 0.87) 0%, rgba(8, 20, 36, 0.8) 100%);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 24px 50px rgba(3, 9, 20, 0.45);
+}
+
+.hero-header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  letter-spacing: 0.02em;
+}
+
+.hero-chip {
+  display: inline-block;
+  margin: 0 0 0.65rem;
+  padding: 0.24rem 0.66rem;
+  border: 1px solid var(--accent-soft);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: #cbe9ff;
+}
+
+.hero-subtitle {
+  margin: 0.7rem 0 0;
+  color: var(--text-muted);
+  font-size: 1.03rem;
+}
+
+.status-row {
+  margin-top: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.56rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.44rem 0.85rem;
+  background: rgba(8, 24, 45, 0.5);
+  max-width: 100%;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #54f0b4;
+  box-shadow: 0 0 0 6px rgba(84, 240, 180, 0.2);
+}
+
+.state-note {
+  margin: 0.5rem 0 0;
+  color: #c4d8f1;
+}
+
+.state-note-error {
+  color: var(--danger);
+}
+
+.station-grid {
+  margin-top: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.86rem;
+}
+
+.station-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 150px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0.95rem;
+  background: linear-gradient(170deg, var(--surface) 0%, rgba(6, 21, 41, 0.74) 100%);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.station-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(168, 213, 255, 0.68);
+  box-shadow: 0 12px 22px rgba(5, 11, 23, 0.33);
+}
+
+.station-card-current {
+  border-color: rgba(113, 190, 255, 0.92);
+  background: linear-gradient(170deg, var(--surface-strong) 0%, rgba(9, 27, 49, 0.8) 100%);
+}
+
+.station-card-playing {
+  box-shadow: 0 0 0 1px rgba(104, 212, 255, 0.64), 0 10px 30px rgba(22, 82, 119, 0.45);
+}
+
+.station-card h2 {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.3;
+}
+
+.station-card p {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.play-btn {
+  align-self: flex-start;
+  margin-top: 0.9rem;
+  border: 1px solid rgba(119, 182, 232, 0.78);
+  border-radius: 999px;
+  background: linear-gradient(130deg, #0a2948 0%, #154e7d 100%);
+  color: #eaf6ff;
+  padding: 0.45rem 0.94rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.play-btn span {
+  display: inline-block;
+  min-width: 3.8rem;
+  text-align: center;
+}
+
+.play-btn:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+.play-btn:focus-visible {
+  outline: 2px solid #95d6ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 680px) {
+  .app-shell {
+    padding: 1rem 0.75rem 1.5rem;
+  }
+
+  .app-panel {
+    padding: 1rem;
+    border-radius: 16px;
+  }
+
+  .station-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-row {
+    width: 100%;
+    border-radius: 14px;
+    padding: 0.6rem 0.75rem;
+    justify-content: flex-start;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .status-row span:last-child {
+    overflow-wrap: anywhere;
+  }
+
+  .station-card {
+    min-height: 128px;
+    gap: 0.75rem;
+  }
+
+  .play-btn {
+    width: 100%;
+    align-self: stretch;
+    padding: 0.62rem 0.94rem;
+  }
+}

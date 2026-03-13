@@ -1,0 +1,304 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+
+type RadioBrowserStation = {
+  stationuuid: string;
+  name: string;
+  tags: string;
+  url_resolved: string;
+  codec: string;
+  bitrate: number;
+};
+
+type Station = {
+  id: string;
+  name: string;
+  genre: string;
+  streamUrl: string;
+};
+
+const STATIONS_API_URL =
+  "https://de1.api.radio-browser.info/json/stations/search?countrycode=BG&hidebroken=true&order=votes&reverse=true&limit=30";
+
+const FALLBACK_STATIONS: Station[] = [
+  {
+    id: "fallback-1",
+    name: "БНР Хоризонт",
+    genre: "Новини",
+    streamUrl: "https://stream.bnr.bg/horizont.mp3",
+  },
+  {
+    id: "fallback-2",
+    name: "БНР Христо Ботев",
+    genre: "Култура",
+    streamUrl: "https://stream.bnr.bg/botev.mp3",
+  },
+  {
+    id: "fallback-3",
+    name: "Дарик Радио",
+    genre: "Talk",
+    streamUrl: "https://darikradio.by.host.bg:8000/S2-128",
+  },
+  {
+    id: "fallback-4",
+    name: "N-JOY",
+    genre: "Поп",
+    streamUrl: "https://live-radio.btv.bg:8001/njoy.mp3",
+  },
+  {
+    id: "fallback-5",
+    name: "Z-Rock",
+    genre: "Рок",
+    streamUrl: "https://live-radio.btv.bg:8001/zrock.mp3",
+  },
+];
+
+function mapToStation(station: RadioBrowserStation): Station {
+  const genre = station.tags?.split(",")[0]?.trim() || station.codec || "Различни";
+  return {
+    id: station.stationuuid,
+    name: station.name || "Без име",
+    genre,
+    streamUrl: station.url_resolved,
+  };
+}
+
+function streamProxyUrl(rawStreamUrl: string): string {
+  return `/api/stream?url=${encodeURIComponent(rawStreamUrl)}`;
+}
+
+export default function App() {
+  const [stations, setStations] = useState<Station[]>(FALLBACK_STATIONS);
+  const [selectedId, setSelectedId] = useState(FALLBACK_STATIONS[0].id);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const userStoppedRef = useRef(false);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function loadStations() {
+      try {
+        const response = await fetch(STATIONS_API_URL);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = (await response.json()) as RadioBrowserStation[];
+        const clean = payload
+          .filter((item) => item.url_resolved && item.name)
+          .filter((item) => item.bitrate === 0 || item.bitrate <= 320)
+          .map(mapToStation);
+
+        if (!disposed && clean.length > 0) {
+          setStations(clean);
+          setSelectedId(clean[0].id);
+          setLoadError(null);
+        }
+      } catch {
+        if (!disposed) {
+          setLoadError("Неуспешно зареждане на списъка. Показани са резервни станции.");
+        }
+      } finally {
+        if (!disposed) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadStations();
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const currentStation = useMemo(
+    () => stations.find((station) => station.id === selectedId) ?? stations[0],
+    [selectedId, stations]
+  );
+
+  const nowPlayingName = useMemo(() => {
+    if (!playingId) {
+      return null;
+    }
+    return stations.find((station) => station.id === playingId)?.name ?? null;
+  }, [playingId, stations]);
+
+  const playingStation = useMemo(() => {
+    if (!playingId) {
+      return null;
+    }
+    return stations.find((station) => station.id === playingId) ?? null;
+  }, [playingId, stations]);
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimerRef.current) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  };
+
+  const playStation = async (station: Station, isReconnect = false) => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    setSelectedId(station.id);
+    setPlaybackError(null);
+
+    if (!isReconnect) {
+      reconnectAttemptsRef.current = 0;
+      clearReconnectTimer();
+    }
+
+    const retrySuffix = isReconnect ? `&retry=${Date.now()}` : "";
+    const nextSrc = `${streamProxyUrl(station.streamUrl)}${retrySuffix}`;
+    audio.src = nextSrc;
+
+    try {
+      await audio.play();
+      setPlayingId(station.id);
+      setPlaybackError(null);
+    } catch {
+      setPlayingId(null);
+      setPlaybackError("Тази станция в момента не може да бъде стартирана.");
+    }
+  };
+
+  const scheduleReconnect = (station: Station) => {
+    if (userStoppedRef.current) {
+      return;
+    }
+
+    const maxRetries = 4;
+    if (reconnectAttemptsRef.current >= maxRetries) {
+      setPlaybackError("Връзката към станцията е нестабилна. Опитайте друга станция.");
+      setPlayingId(null);
+      return;
+    }
+
+    reconnectAttemptsRef.current += 1;
+    const attempt = reconnectAttemptsRef.current;
+    const delay = Math.min(1600 * attempt, 6000);
+    setPlaybackError(`Възстановяване на потока... (${attempt}/${maxRetries})`);
+    clearReconnectTimer();
+    reconnectTimerRef.current = window.setTimeout(() => {
+      playStation(station, true);
+    }, delay);
+  };
+
+  const handlePlayToggle = async (station: Station) => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    userStoppedRef.current = false;
+
+    if (playingId === station.id) {
+      userStoppedRef.current = true;
+      clearReconnectTimer();
+      audio.pause();
+      setPlayingId(null);
+      setPlaybackError(null);
+      return;
+    }
+
+    await playStation(station);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearReconnectTimer();
+    };
+  }, []);
+
+  return (
+    <main className="app-shell">
+      <audio
+        ref={audioRef}
+        preload="none"
+        onPlaying={() => {
+          reconnectAttemptsRef.current = 0;
+          setPlaybackError(null);
+        }}
+        onEnded={() => {
+          if (playingStation && !userStoppedRef.current) {
+            scheduleReconnect(playingStation);
+            return;
+          }
+          setPlayingId(null);
+        }}
+        onStalled={() => {
+          if (playingStation && !userStoppedRef.current) {
+            scheduleReconnect(playingStation);
+          }
+        }}
+        onError={() => {
+          if (playingStation && !userStoppedRef.current) {
+            scheduleReconnect(playingStation);
+            return;
+          }
+          setPlayingId(null);
+          setPlaybackError("Проблем при възпроизвеждане на радио потока.");
+        }}
+      />
+
+      <section className="app-panel">
+        <header className="hero-header">
+          <p className="hero-chip">LIVE RADIO DIRECTORY</p>
+          <h1>RadioBG Online</h1>
+          <p className="hero-subtitle">
+          Слушайте български радиостанции на живо.
+          </p>
+          <div className="status-row" role="status" aria-live="polite">
+            <span className="status-dot" />
+            <span>
+              {nowPlayingName
+                ? `Сега свири: ${nowPlayingName}`
+                : currentStation
+                  ? `Готово за пускане: ${currentStation.name}`
+                  : "Изберете станция"}
+            </span>
+          </div>
+          {isLoading && <p className="state-note">Зареждане на станции...</p>}
+          {loadError && <p className="state-note state-note-error">{loadError}</p>}
+          {playbackError && <p className="state-note state-note-error">{playbackError}</p>}
+        </header>
+
+        <section aria-label="Станции" className="station-grid">
+          {stations.map((station) => {
+            const isCurrent = selectedId === station.id;
+            const isPlaying = playingId === station.id;
+            return (
+              <article
+                key={station.id}
+                className={`station-card ${isCurrent ? "station-card-current" : ""} ${isPlaying ? "station-card-playing" : ""}`}
+              >
+                <div>
+                  <h2>{station.name}</h2>
+                  <p>{station.genre}</p>
+                </div>
+                <button
+                  type="button"
+                  className="play-btn"
+                  onClick={() => handlePlayToggle(station)}
+                  aria-label={isPlaying ? `Спри ${station.name}` : `Пусни ${station.name}`}
+                >
+                  <span>{isPlaying ? "PAUSE" : "PLAY"}</span>
+                </button>
+              </article>
+            );
+          })}
+        </section>
+
+      </section>
+    </main>
+  );
+}
