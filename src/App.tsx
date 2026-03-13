@@ -132,6 +132,7 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const stallTimerRef = useRef<number | null>(null);
+  const pauseRecoveryTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const lastProgressAtRef = useRef(0);
   const lastProgressPositionRef = useRef(0);
@@ -269,6 +270,13 @@ export default function App() {
     }
   };
 
+  const clearPauseRecoveryTimer = () => {
+    if (pauseRecoveryTimerRef.current) {
+      window.clearTimeout(pauseRecoveryTimerRef.current);
+      pauseRecoveryTimerRef.current = null;
+    }
+  };
+
   const playStation = async (station: Station, isReconnect = false) => {
     const audio = audioRef.current;
     if (!audio) {
@@ -282,6 +290,7 @@ export default function App() {
       reconnectAttemptsRef.current = 0;
       clearReconnectTimer();
       clearStallTimer();
+      clearPauseRecoveryTimer();
     }
 
     const retrySuffix = isReconnect ? `&retry=${Date.now()}` : "";
@@ -376,8 +385,46 @@ export default function App() {
     return () => {
       clearReconnectTimer();
       clearStallTimer();
+      clearPauseRecoveryTimer();
     };
   }, []);
+
+  useEffect(() => {
+    if (!playingStation) {
+      return;
+    }
+
+    const intervalMs = isMobileDataConnection ? 12000 : 15000;
+    const staleProgressMs = isMobileDataConnection ? 25000 : 18000;
+
+    const id = window.setInterval(() => {
+      if (userStoppedRef.current) {
+        return;
+      }
+
+      const audio = audioRef.current;
+      if (!audio) {
+        return;
+      }
+
+      if (reconnectTimerRef.current || stallTimerRef.current || pauseRecoveryTimerRef.current) {
+        return;
+      }
+
+      if (audio.paused) {
+        scheduleReconnect(playingStation);
+        return;
+      }
+
+      if (Date.now() - lastProgressAtRef.current > staleProgressMs) {
+        scheduleReconnectAfterBuffering(playingStation);
+      }
+    }, intervalMs);
+
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [playingStation, isMobileDataConnection]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -470,12 +517,26 @@ export default function App() {
         onPause={() => {
           if (!userStoppedRef.current && playingStation) {
             shouldAutoResumeRef.current = true;
+
+            clearPauseRecoveryTimer();
+            pauseRecoveryTimerRef.current = window.setTimeout(() => {
+              pauseRecoveryTimerRef.current = null;
+              const audio = audioRef.current;
+              if (!audio || userStoppedRef.current) {
+                return;
+              }
+
+              if (audio.paused) {
+                scheduleReconnect(playingStation);
+              }
+            }, 1800);
           }
         }}
         onPlaying={() => {
           reconnectAttemptsRef.current = 0;
           setPlaybackError(null);
           shouldAutoResumeRef.current = false;
+          clearPauseRecoveryTimer();
           const audio = audioRef.current;
           if (audio) {
             lastProgressAtRef.current = Date.now();
@@ -501,6 +562,7 @@ export default function App() {
             lastProgressAtRef.current = Date.now();
             lastProgressPositionRef.current = audio.currentTime;
           }
+          clearPauseRecoveryTimer();
           if (stallTimerRef.current) {
             clearStallTimer();
             setPlaybackError(null);
