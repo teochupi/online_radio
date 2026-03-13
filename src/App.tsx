@@ -7,6 +7,7 @@ type RadioBrowserStation = {
   url_resolved: string;
   codec: string;
   bitrate: number;
+  votes?: number;
 };
 
 type Station = {
@@ -16,8 +17,11 @@ type Station = {
   streamUrl: string;
 };
 
-const STATIONS_API_URL =
-  "https://de1.api.radio-browser.info/json/stations/search?countrycode=BG&hidebroken=true&order=votes&reverse=true&limit=30";
+const STATIONS_BG_API_URL =
+  "https://de1.api.radio-browser.info/json/stations/search?countrycode=BG&hidebroken=false&order=votes&reverse=true&limit=500";
+
+const STATIONS_BG_LANGUAGE_API_URL =
+  "https://de1.api.radio-browser.info/json/stations/bylanguageexact/Bulgarian?hidebroken=false&order=votes&reverse=true&limit=500";
 
 const FALLBACK_STATIONS: Station[] = [
   {
@@ -62,15 +66,32 @@ function mapToStation(station: RadioBrowserStation): Station {
   };
 }
 
-function isLikelyWebPlayable(station: RadioBrowserStation): boolean {
+function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
   const url = station.url_resolved?.trim();
-  if (!url || !url.startsWith("https://")) {
+  if (!url) {
+    return false;
+  }
+
+  if (requireHttps && !url.startsWith("https://")) {
     return false;
   }
 
   // On GitHub Pages we can only play secure streams due to browser mixed-content rules.
   // Codec metadata in the API is often missing/inconsistent, so we avoid strict codec filtering.
   return true;
+}
+
+function normalizeStations(
+  stations: RadioBrowserStation[],
+  requireHttps: boolean
+): Station[] {
+  return stations
+    .filter((item) => item.url_resolved && item.name)
+    .filter((item) => isLikelyWebPlayable(item, requireHttps))
+    .filter((item, index, all) => all.findIndex((candidate) => candidate.url_resolved === item.url_resolved) === index)
+    .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))
+    .slice(0, 80)
+    .map(mapToStation);
 }
 
 function streamProxyUrl(rawStreamUrl: string): string {
@@ -97,18 +118,27 @@ export default function App() {
 
     async function loadStations() {
       try {
-        const response = await fetch(STATIONS_API_URL);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const requireHttps =
+          typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
+
+        const [byCountryResponse, byLanguageResponse] = await Promise.all([
+          fetch(STATIONS_BG_API_URL),
+          fetch(STATIONS_BG_LANGUAGE_API_URL),
+        ]);
+
+        if (!byCountryResponse.ok && !byLanguageResponse.ok) {
+          throw new Error("Failed to fetch station lists");
         }
 
-        const payload = (await response.json()) as RadioBrowserStation[];
-        const clean = payload
-          .filter((item) => item.url_resolved && item.name)
-          .filter(isLikelyWebPlayable)
-          .filter((item) => item.bitrate === 0 || item.bitrate <= 320)
-          .filter((item, index, all) => all.findIndex((candidate) => candidate.url_resolved === item.url_resolved) === index)
-          .map(mapToStation);
+        const byCountryPayload = byCountryResponse.ok
+          ? ((await byCountryResponse.json()) as RadioBrowserStation[])
+          : [];
+        const byLanguagePayload = byLanguageResponse.ok
+          ? ((await byLanguageResponse.json()) as RadioBrowserStation[])
+          : [];
+
+        const merged = [...byCountryPayload, ...byLanguagePayload];
+        const clean = normalizeStations(merged, requireHttps);
 
         if (!disposed && clean.length > 0) {
           setStations(clean);
