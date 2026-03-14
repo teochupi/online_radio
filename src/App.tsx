@@ -50,14 +50,21 @@ const FALLBACK_STATIONS: Station[] = [
     id: "fallback-4",
     name: "N-JOY",
     genre: "Поп",
-    streamUrl: "https://live-radio.btv.bg:8001/njoy.mp3",
+    streamUrl: "https://live-radio.btv.bg:8000/njoy.mp3",
     bitrate: 128,
   },
   {
     id: "fallback-5",
     name: "Z-Rock",
     genre: "Рок",
-    streamUrl: "https://live-radio.btv.bg:8001/zrock.mp3",
+    streamUrl: "https://live-radio.btv.bg:8000/zrock.mp3",
+    bitrate: 128,
+  },
+  {
+    id: "fallback-city",
+    name: "City Radio",
+    genre: "Поп & Хитове",
+    streamUrl: "https://stream.city.bg/city.mp3",
     bitrate: 128,
   },
 ];
@@ -471,9 +478,14 @@ export default function App() {
     const streamPoolKey = stationNameKey(station.name);
     let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     
-    // TOOL: Custom direct-stream bypass for City Radio to avoid ad-injection gaps
-    if (searchKey(station.name).includes("city") && !streamPool.some(u => u.includes("stream.city.bg"))) {
-       streamPool = ["https://stream.city.bg/city.mp3", ...streamPool];
+    // TOOL: RadioExpert Logic Bypass - Priority for AAC and direct clusters
+    if (searchKey(station.name).includes("city")) {
+       streamPool = [
+         "https://stream.city.bg:80/city64.aac", // High stability AAC
+         "https://stream.city.bg/city.mp3",    // Direct bypass
+         "https://stream.city.bg:443/city.mp3", // Port 443 often bypasses QoS limits
+         ...streamPool
+       ];
     }
 
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
