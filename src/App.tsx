@@ -453,6 +453,13 @@ export default function App() {
     badStreamUntilRef.current[currentUrl] = Date.now() + 2 * 60 * 1000;
   };
 
+  const playStation = async (station: Station, isReconnect = false) => {
+    const primaryAudio = audioRef.current;
+    const secondaryAudio = audioSecondaryRef.current;
+    if (!primaryAudio || !secondaryAudio) {
+      return;
+    }
+
     primaryAudio.pause();
     secondaryAudio.pause();
 
