@@ -1027,7 +1027,7 @@ export default function App() {
                   onClick={() => handlePlayToggle(station)}
                   aria-label={isPlaying ? `Спри ${station.name}` : `Пусни ${station.name}`}
                 >
-                  <span>{isPlaying ? "?????" : "?????"}</span>
+                  <span>{isPlaying ? "PAUSE" : "PLAY"}</span>
                 </button>
               </article>
             );
