@@ -71,6 +71,8 @@ const PRIORITY_STATION_NAMES = [
   "radio 1 bulgaria",
   "novanews bulgaria",
   "city radio bulgaria",
+  "n-joy",
+  "zorana",
   "btv radio",
   "euronews bulgaria",
   "radio 1",
