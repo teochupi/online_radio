@@ -133,7 +133,8 @@ function prioritizeStations(stations: Station[]): Station[] {
 }
 
 function isAdBreakSensitiveStation(stationName: string): boolean {
-  return searchKey(stationName).includes("city radio bulgaria");
+  const key = searchKey(stationName);
+  return key.includes("city radio bulgaria") || key.includes("radio energy bulgaria") || key.includes("the voice bulgaria");
 }
 
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
@@ -223,7 +224,7 @@ export default function App() {
 
     const updateConnectionFlags = () => {
       const effectiveType = String(connection.effectiveType || "");
-      const isCellularLike = ["slow-2g", "2g", "3g", "4g"].includes(effectiveType);
+      const isCellularLike = ["slow-2g", "2g", "3g", "4g", "5g"].includes(effectiveType);
 
       setIsMobileDataConnection(isCellularLike);
     };
@@ -541,10 +542,9 @@ export default function App() {
       return;
     }
 
-    reconnectAttemptsRef.current += 1;
     const attempt = reconnectAttemptsRef.current;
-    const delayBase = isAdSensitive ? 1200 : isMobileDataConnection ? 2400 : 1600;
-    const delayCeiling = isAdSensitive ? 5000 : isMobileDataConnection ? 12000 : 6000;
+    const delayBase = isAdSensitive ? 1000 : isMobileDataConnection ? 2000 : 1500;
+    const delayCeiling = isAdSensitive ? 4000 : isMobileDataConnection ? 10000 : 6000;
     const delay = Math.min(delayBase * attempt, delayCeiling);
     setPlaybackError(`Възстановяване на потока... (${attempt}/${maxRetries})`);
     clearReconnectTimer();
@@ -560,18 +560,16 @@ export default function App() {
 
     // On mobile keep stall window short: ad-transition stream breaks are brief.
     const stallDelayMs = isAdBreakSensitiveStation(station.name)
-      ? 18000
-      : isMobileDataConnection
-        ? 5000
-        : 9000;
+      ? (isMobileDataConnection ? 8000 : 12000)
+      : (isMobileDataConnection ? 4000 : 6000);
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
 
       const audio = audioRef.current;
       if (audio && !audio.paused) {
         const progressedRecently =
-          audio.currentTime > lastProgressPositionRef.current + 0.2 ||
-          Date.now() - lastProgressAtRef.current < (isMobileDataConnection ? 8000 : 5000);
+          audio.currentTime > lastProgressPositionRef.current + 0.15 ||
+          Date.now() - lastProgressAtRef.current < (isMobileDataConnection ? 6000 : 4000);
 
         if (progressedRecently) {
           return;
@@ -619,8 +617,8 @@ export default function App() {
       return;
     }
 
-    const intervalMs = isMobileDataConnection ? 12000 : 15000;
-    const staleProgressMs = isMobileDataConnection ? 25000 : 18000;
+    const intervalMs = isMobileDataConnection ? 8000 : 12000;
+    const staleProgressMs = isMobileDataConnection ? 15000 : 18000;
 
     const id = window.setInterval(() => {
       if (userStoppedRef.current) {
