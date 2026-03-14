@@ -572,15 +572,16 @@ export default function App() {
     reconnectAttemptsRef.current += 1;
 
     const attempt = reconnectAttemptsRef.current;
-    // Keep internal delays low so user doesn't wait long.
-    const delayBase = isAdSensitive ? 800 : (isMobileDataConnection ? 1200 : 1500);
-    const delayCeiling = isAdSensitive ? 3000 : (isMobileDataConnection ? 5000 : 6000);
-    const delay = Math.min(delayBase * attempt, delayCeiling);
+    // CRITICAL FIX: Do NOT use 'attempt' in the delay calculation for ad-sensitive/mobile.
+    // We want a CONSTANT, fast retry cycle (e.g. 2-3 seconds) to avoid the 15-20s gaps you observed.
+    const delay = isAdSensitive 
+      ? 2000 
+      : (isMobileDataConnection ? 2500 : Math.min(1500 * attempt, 6000));
     
-    if (attempt > 5) {
-        setPlaybackError(`Слаба връзка. Автоматичен опит за свързване...`);
+    if (attempt > 3) {
+        setPlaybackError(`Пренасочване на потока...`);
     } else {
-        setPlaybackError(`Възстановяване на потока...`);
+        setPlaybackError(`Възстановяване...`);
     }
     clearReconnectTimer();
     reconnectTimerRef.current = window.setTimeout(() => {
@@ -664,7 +665,8 @@ export default function App() {
       }
 
       const audio = audioRef.current;
-      if (!audio) {
+      const audioSecondary = audioSecondaryRef.current;
+      if (!audio || !audioSecondary) {
         return;
       }
 
@@ -677,7 +679,9 @@ export default function App() {
         return;
       }
 
-      if (audio.paused) {
+      const activeAudio = activeAudioIndexRef.current === 0 ? audio : audioSecondary;
+
+      if (activeAudio.paused) {
         scheduleReconnect(recoveryStation);
         return;
       }
