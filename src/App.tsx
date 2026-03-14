@@ -460,15 +460,15 @@ export default function App() {
       return;
     }
 
+    // CRITICAL: Stop and CLEAR everything before moving to a new station
     primaryAudio.pause();
+    primaryAudio.removeAttribute("src");
+    primaryAudio.load();
     secondaryAudio.pause();
+    secondaryAudio.removeAttribute("src");
+    secondaryAudio.load();
 
     if (!isReconnect) {
-      primaryAudio.removeAttribute("src");
-      primaryAudio.load();
-      secondaryAudio.removeAttribute("src");
-      secondaryAudio.load();
-      
       reconnectAttemptsRef.current = 0;
       clearReconnectTimer();
       clearStallTimer();
@@ -496,6 +496,9 @@ export default function App() {
        streamPool = ["https://stream.magic.bg/magic.mp3", "http://149.62.203.11/magic.aac", ...streamPool];
     } else if (lowerName.includes("energy") || lowerName.includes("nrj")) {
        streamPool = ["https://stream.nrj.bg/nrj.mp3", "http://149.62.203.11/nrj.aac", ...streamPool];
+    } else if (lowerName.includes("euronews")) {
+       // Euronews often has issues with standard Radio Browser links
+       streamPool = ["https://euronews-bulgarian.streaming-provide.com/euronews_bulgarian.mp3", ...streamPool];
     }
 
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
