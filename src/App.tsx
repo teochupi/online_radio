@@ -136,7 +136,13 @@ function prioritizeStations(stations: Station[]): Station[] {
 
 function isAdBreakSensitiveStation(stationName: string): boolean {
   const key = searchKey(stationName);
-  return key.includes("city radio bulgaria") || key.includes("radio energy bulgaria") || key.includes("the voice bulgaria");
+  return (
+    key.includes("city") ||
+    key.includes("energy") ||
+    key.includes("the voice") ||
+    key.includes("vitosha") ||
+    key.includes("magic")
+  );
 }
 
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
@@ -560,9 +566,11 @@ export default function App() {
       return;
     }
 
-    // On mobile keep stall window short: ad-transition stream breaks are brief.
-    const stallDelayMs = isAdBreakSensitiveStation(station.name)
-      ? (isMobileDataConnection ? 8000 : 12000)
+    // For ad-sensitive stations (City, Energy, etc.), recovery should be near-instant 
+    // when they break during ad insertion transitions.
+    const isAdSensitive = isAdBreakSensitiveStation(station.name);
+    const stallDelayMs = isAdSensitive
+      ? (isMobileDataConnection ? 2000 : 3000)
       : (isMobileDataConnection ? 4000 : 6000);
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
@@ -619,8 +627,9 @@ export default function App() {
       return;
     }
 
-    const intervalMs = isMobileDataConnection ? 8000 : 12000;
-    const staleProgressMs = isMobileDataConnection ? 15000 : 18000;
+    const isAdSensitive = playingStation ? isAdBreakSensitiveStation(playingStation.name) : false;
+    const intervalMs = isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000);
+    const staleProgressMs = isAdSensitive ? 6000 : (isMobileDataConnection ? 15000 : 18000);
 
     const id = window.setInterval(() => {
       if (userStoppedRef.current) {
