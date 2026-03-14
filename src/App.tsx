@@ -62,6 +62,16 @@ const FALLBACK_STATIONS: Station[] = [
   },
 ];
 
+const PRIORITY_STATION_NAMES = [
+  "magic",
+  "the voice",
+  "radio vitosha",
+  "avto radio",
+  "radio 1",
+  "radio bgradio",
+  "radio contact",
+];
+
 function mapToStation(station: RadioBrowserStation): Station {
   const genre = station.tags?.split(",")[0]?.trim() || station.codec || "Различни";
   return {
@@ -81,6 +91,42 @@ function stationNameKey(name: string): string {
     .trim();
 }
 
+function searchKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stationPriorityRank(name: string): number {
+  const normalizedName = searchKey(name).replace(/^radio\s+/, "");
+  const rankedIndex = PRIORITY_STATION_NAMES.findIndex((preferredName) => {
+    const normalizedPreferred = searchKey(preferredName).replace(/^radio\s+/, "");
+    return (
+      normalizedName === normalizedPreferred ||
+      normalizedName.includes(normalizedPreferred) ||
+      normalizedPreferred.includes(normalizedName)
+    );
+  });
+
+  return rankedIndex === -1 ? Number.POSITIVE_INFINITY : rankedIndex;
+}
+
+function prioritizeStations(stations: Station[]): Station[] {
+  return stations
+    .map((station, index) => ({ station, index, rank: stationPriorityRank(station.name) }))
+    .sort((a, b) => {
+      if (a.rank !== b.rank) {
+        return a.rank - b.rank;
+      }
+
+      return a.index - b.index;
+    })
+    .map((entry) => entry.station);
+}
+
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
   const url = station.url_resolved?.trim();
   if (!url) {
@@ -98,14 +144,12 @@ function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean
 
 function normalizeStations(
   stations: RadioBrowserStation[],
-  requireHttps: boolean,
-  dataSaverMode: boolean
+  requireHttps: boolean
 ): Station[] {
-  const maxBitrate = dataSaverMode ? 128 : 320;
-  return stations
+  const cleaned = stations
     .filter((item) => item.url_resolved && item.name)
     .filter((item) => isLikelyWebPlayable(item, requireHttps))
-    .filter((item) => item.bitrate === 0 || item.bitrate <= maxBitrate)
+    .filter((item) => item.bitrate === 0 || item.bitrate <= 320)
     .filter((item, index, all) => all.findIndex((candidate) => candidate.url_resolved === item.url_resolved) === index)
     .sort((a, b) => {
       const voteSort = (b.votes ?? 0) - (a.votes ?? 0);
@@ -119,6 +163,8 @@ function normalizeStations(
     })
     .slice(0, 80)
     .map(mapToStation);
+
+  return prioritizeStations(cleaned);
 }
 
 function streamProxyUrl(rawStreamUrl: string): string {
@@ -131,7 +177,7 @@ function streamProxyUrl(rawStreamUrl: string): string {
 export default function App() {
   const [stations, setStations] = useState<Station[]>(FALLBACK_STATIONS);
   const [allStations, setAllStations] = useState<RadioBrowserStation[]>([]);
-  const [dataSaverMode, setDataSaverMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedId, setSelectedId] = useState(FALLBACK_STATIONS[0].id);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -169,12 +215,8 @@ export default function App() {
     const updateConnectionFlags = () => {
       const effectiveType = String(connection.effectiveType || "");
       const isCellularLike = ["slow-2g", "2g", "3g", "4g"].includes(effectiveType);
-      const prefersDataSaving = Boolean(connection.saveData) || isCellularLike;
 
       setIsMobileDataConnection(isCellularLike);
-      if (prefersDataSaving) {
-        setDataSaverMode(true);
-      }
     };
 
     updateConnectionFlags();
@@ -231,7 +273,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const clean = normalizeStations(allStations, requireHttps, dataSaverMode);
+    const clean = normalizeStations(allStations, requireHttps);
 
     if (clean.length > 0) {
       setStations(clean);
@@ -239,7 +281,7 @@ export default function App() {
     }
 
     setStations(FALLBACK_STATIONS);
-  }, [allStations, dataSaverMode, requireHttps]);
+  }, [allStations, requireHttps]);
 
   const stationStreamPools = useMemo(() => {
     const poolMaxBitrate = isMobileDataConnection ? 192 : 320;
@@ -308,6 +350,37 @@ export default function App() {
     }
     return stations.find((station) => station.id === playingId) ?? null;
   }, [playingId, stations]);
+
+  const normalizedSearchQuery = useMemo(() => searchKey(searchQuery), [searchQuery]);
+
+  const matchingStations = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return stations;
+    }
+
+    return stations.filter((station) => searchKey(station.name).includes(normalizedSearchQuery));
+  }, [normalizedSearchQuery, stations]);
+
+  const suggestedStations = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return [];
+    }
+
+    return matchingStations.slice(0, 6);
+  }, [matchingStations, normalizedSearchQuery]);
+
+  const visibleStations = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return stations;
+    }
+
+    return matchingStations;
+  }, [matchingStations, normalizedSearchQuery, stations]);
+
+  const handleSuggestionPick = (station: Station) => {
+    setSearchQuery(station.name);
+    setSelectedId(station.id);
+  };
 
   const getRecoveryStation = () => {
     return playingStation ?? lastRequestedStationRef.current ?? currentStation ?? null;
@@ -750,14 +823,49 @@ export default function App() {
           Слушайте български радиостанции на живо.
           </p>
           <div className="toolbar-row">
-            <button
-              type="button"
-              className={`toggle-chip ${dataSaverMode ? "toggle-chip-on" : ""}`}
-              onClick={() => setDataSaverMode((prev) => !prev)}
-              aria-pressed={dataSaverMode}
-            >
-              {dataSaverMode ? "Пестене на данни: ВКЛ." : "Пестене на данни: ИЗКЛ."}
-            </button>
+            <label className="search-box" htmlFor="station-search">
+              <span className="search-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false" role="img" aria-label="">
+                  <path
+                    fill="currentColor"
+                    d="M10 2a8 8 0 1 0 4.9 14.32l4.38 4.39a1 1 0 1 0 1.42-1.42l-4.39-4.38A8 8 0 0 0 10 2Zm0 2a6 6 0 1 1 0 12a6 6 0 0 1 0-12Z"
+                  />
+                </svg>
+              </span>
+              <input
+                id="station-search"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && suggestedStations[0]) {
+                    event.preventDefault();
+                    handleSuggestionPick(suggestedStations[0]);
+                  }
+                }}
+                placeholder="Търси радиостанция..."
+                aria-label="Търсене на радиостанция"
+                autoComplete="off"
+              />
+            </label>
+            {normalizedSearchQuery && (
+              <div className="search-suggestions" role="listbox" aria-label="Предложени станции">
+                {suggestedStations.length > 0 ? (
+                  suggestedStations.map((station) => (
+                    <button
+                      key={station.id}
+                      type="button"
+                      className="search-suggestion-btn"
+                      onClick={() => handleSuggestionPick(station)}
+                    >
+                      {station.name}
+                    </button>
+                  ))
+                ) : (
+                  <p className="state-note">Няма съвпадения за това търсене.</p>
+                )}
+              </div>
+            )}
           </div>
           <div className="status-row" role="status" aria-live="polite">
             <span className="status-dot" />
@@ -770,13 +878,12 @@ export default function App() {
             </span>
           </div>
           {isLoading && <p className="state-note">Зареждане на станции...</p>}
-          {dataSaverMode && <p className="state-note">Режимът за пестене на мобилни данни е активен (по-нисък битрейт).</p>}
           {loadError && <p className="state-note state-note-error">{loadError}</p>}
           {playbackError && <p className="state-note state-note-error">{playbackError}</p>}
         </header>
 
         <section aria-label="Станции" className="station-grid">
-          {stations.map((station) => {
+          {visibleStations.map((station) => {
             const isCurrent = selectedId === station.id;
             const isPlaying = playingId === station.id;
             return (
@@ -800,6 +907,9 @@ export default function App() {
             );
           })}
         </section>
+        {normalizedSearchQuery && visibleStations.length === 0 && (
+          <p className="state-note">Няма станции, които да съвпадат с въведеното.</p>
+        )}
 
       </section>
     </main>
