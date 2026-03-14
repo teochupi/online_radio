@@ -164,6 +164,10 @@ function isAdBreakSensitiveStation(stationName: string): boolean {
   );
 }
 
+function isCityStation(stationName: string): boolean {
+  return searchKey(stationName).includes("city");
+}
+
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
   const url = station.url_resolved?.trim();
   if (!url || EXCLUDED_STREAM_URLS.has(url)) {
@@ -525,8 +529,13 @@ export default function App() {
     const streamPoolKey = stationNameKey(station.name);
     let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     
-    // TOOL: Custom direct-stream bypass for City Radio to avoid ad-injection gaps
-    if (searchKey(station.name).includes("city") && !streamPool.some((u) => u.includes("stream.city.bg"))) {
+    // Keep the direct City endpoint only on non-mobile connections.
+    // On mobile networks this endpoint is more prone to short ad/segment dropouts.
+    if (
+      isCityStation(station.name) &&
+      !isMobileDataConnection &&
+      !streamPool.some((u) => u.includes("stream.city.bg"))
+    ) {
       streamPool = ["https://stream.city.bg/city.mp3", ...streamPool];
     }
 
@@ -603,6 +612,7 @@ export default function App() {
     clearStallTimer();
 
     const isAdSensitive = isAdBreakSensitiveStation(station.name);
+    const isCity = isCityStation(station.name);
     // CRITICAL: Never stop trying for City and other ad-sensitive stations or on mobile data.
     // We remove the hard limit and replace it with a continuous cycle.
     const maxRetries = isAdSensitive ? 9999 : (isMobileDataConnection ? 9999 : 6);
@@ -618,9 +628,14 @@ export default function App() {
     const attempt = reconnectAttemptsRef.current;
     // CRITICAL FIX: Do NOT use 'attempt' in the delay calculation for ad-sensitive/mobile.
     // We want a CONSTANT, fast retry cycle (e.g. 2-3 seconds) to avoid the 15-20s gaps you observed.
-    const delay = isAdSensitive 
-      ? 2000 
-      : (isMobileDataConnection ? 2500 : Math.min(1500 * attempt, 6000));
+    const delay =
+      isCity && isMobileDataConnection
+        ? 4500
+        : isAdSensitive
+          ? 2000
+          : isMobileDataConnection
+            ? 2500
+            : Math.min(1500 * attempt, 6000);
     
     if (attempt > 3) {
         setPlaybackError(`Пренасочване на потока...`);
@@ -641,17 +656,21 @@ export default function App() {
     // For ad-sensitive stations (City, Energy, etc.), recovery should be near-instant 
     // when they break during ad insertion transitions.
     const isAdSensitive = isAdBreakSensitiveStation(station.name);
-    const stallDelayMs = isAdSensitive
-      ? (isMobileDataConnection ? 2000 : 3000)
-      : (isMobileDataConnection ? 4000 : 6000);
+    const isCity = isCityStation(station.name);
+    const stallDelayMs = isCity && isMobileDataConnection
+      ? 7000
+      : isAdSensitive
+        ? (isMobileDataConnection ? 2000 : 3000)
+        : (isMobileDataConnection ? 4000 : 6000);
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
 
       const audio = activeAudioIndexRef.current === 0 ? audioRef.current : audioSecondaryRef.current;
       if (audio && !audio.paused) {
+        const minRecentProgressMs = isCity && isMobileDataConnection ? 10000 : (isMobileDataConnection ? 6000 : 4000);
         const progressedRecently =
           audio.currentTime > lastProgressPositionRef.current + 0.15 ||
-          Date.now() - lastProgressAtRef.current < (isMobileDataConnection ? 6000 : 4000);
+          Date.now() - lastProgressAtRef.current < minRecentProgressMs;
 
         if (progressedRecently) {
           return;
@@ -694,8 +713,13 @@ export default function App() {
     }
 
     const isAdSensitive = playingStation ? isAdBreakSensitiveStation(playingStation.name) : false;
-    const intervalMs = isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000);
-    const staleProgressMs = isAdSensitive ? 6000 : (isMobileDataConnection ? 15000 : 18000);
+    const isCity = playingStation ? isCityStation(playingStation.name) : false;
+    const intervalMs = isCity && isMobileDataConnection ? 5000 : (isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000));
+    const staleProgressMs = isCity && isMobileDataConnection
+      ? 12000
+      : isAdSensitive
+        ? 6000
+        : (isMobileDataConnection ? 15000 : 18000);
 
     const id = window.setInterval(() => {
       if (userStoppedRef.current) {
@@ -803,6 +827,10 @@ export default function App() {
         onPause={() => {
           const recoveryStation = getRecoveryStation();
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 0) {
+            const pauseRecoveryDelayMs =
+              isCityStation(recoveryStation.name) && isMobileDataConnection
+                ? 2500
+                : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
             pauseRecoveryTimerRef.current = window.setTimeout(() => {
@@ -810,7 +838,7 @@ export default function App() {
               if (audioRef.current?.paused && !userStoppedRef.current) {
                 scheduleReconnect(recoveryStation);
               }
-            }, isMobileDataConnection ? 800 : 1800);
+            }, pauseRecoveryDelayMs);
           }
         }}
         onPlaying={() => {
@@ -875,6 +903,10 @@ export default function App() {
         onPause={() => {
           const recoveryStation = getRecoveryStation();
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 1) {
+            const pauseRecoveryDelayMs =
+              isCityStation(recoveryStation.name) && isMobileDataConnection
+                ? 2500
+                : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
             pauseRecoveryTimerRef.current = window.setTimeout(() => {
@@ -882,7 +914,7 @@ export default function App() {
               if (audioSecondaryRef.current?.paused && !userStoppedRef.current) {
                 scheduleReconnect(recoveryStation);
               }
-            }, isMobileDataConnection ? 800 : 1800);
+            }, pauseRecoveryDelayMs);
           }
         }}
         onPlaying={() => {
