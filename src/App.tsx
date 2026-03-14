@@ -148,9 +148,7 @@ function isAdBreakSensitiveStation(stationName: string): boolean {
     key.includes("energy") ||
     key.includes("the voice") ||
     key.includes("vitosha") ||
-    key.includes("magic") ||
-    key.includes("radio 1") ||
-    key.includes("euronews")
+    key.includes("magic")
   );
 }
 
@@ -194,11 +192,7 @@ function normalizeStations(
   return prioritizeStations(cleaned);
 }
 
-function streamProxyUrl(rawStreamUrl: string, stationName: string): string {
-  // City Radio and others often block proxies or work better with direct AAC/MP3
-  if (isAdBreakSensitiveStation(stationName)) {
-    return rawStreamUrl;
-  }
+function streamProxyUrl(rawStreamUrl: string): string {
   if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
     return rawStreamUrl;
   }
@@ -495,21 +489,9 @@ export default function App() {
     const streamPoolKey = stationNameKey(station.name);
     let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     
-    // Stability Cluster for major BG stations (RadioExpert/Direct logic)
-    const lowerName = searchKey(station.name);
-    if (lowerName.includes("city")) {
-       streamPool = ["https://stream.city.bg/city.mp3", "http://149.62.203.11/city.aac", ...streamPool];
-    } else if (lowerName.includes("magic")) {
-       streamPool = ["https://stream.magic.bg/magic.mp3", "http://149.62.203.11/magic.aac", ...streamPool];
-    } else if (lowerName.includes("energy") || lowerName.includes("nrj")) {
-       streamPool = ["https://stream.nrj.bg/nrj.mp3", "http://149.62.203.11/nrj.aac", ...streamPool];
-    } else if (lowerName.includes("euronews")) {
-       // Euronews Bulgaria stable official stream
-       streamPool = [
-         "https://play.euronews.bg/stream",
-         "https://euronews-bulgarian.streaming-provide.com/euronews_bulgarian.mp3",
-         ...streamPool
-       ];
+    // TOOL: Custom direct-stream bypass for City Radio to avoid ad-injection gaps
+    if (searchKey(station.name).includes("city") && !streamPool.some(u => u.includes("stream.city.bg"))) {
+       streamPool = ["https://stream.city.bg/city.mp3", ...streamPool];
     }
 
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
@@ -536,7 +518,7 @@ export default function App() {
     const chosenStreamUrl = streamPool[nextPoolIndex] ?? station.streamUrl;
     currentStreamUrlByStationRef.current[station.id] = chosenStreamUrl;
     
-    const baseSrc = streamProxyUrl(chosenStreamUrl, station.name);
+    const baseSrc = streamProxyUrl(chosenStreamUrl);
     const nextSrc = isReconnect
       ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
       : baseSrc;
