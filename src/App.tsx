@@ -202,6 +202,8 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const audioSecondaryRef = useRef<HTMLAudioElement>(null);
+  const activeAudioIndexRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const stallTimerRef = useRef<number | null>(null);
   const pauseRecoveryTimerRef = useRef<number | null>(null);
@@ -440,10 +442,18 @@ export default function App() {
   };
 
   const playStation = async (station: Station, isReconnect = false) => {
-    const audio = audioRef.current;
-    if (!audio) {
+    const primaryAudio = audioRef.current;
+    const secondaryAudio = audioSecondaryRef.current;
+    if (!primaryAudio || !secondaryAudio) {
       return;
     }
+
+    const isAdSensitive = isAdBreakSensitiveStation(station.name);
+    // When reconnecting an ad-sensitive station, we prepare the OTHER player 
+    // to swap seamlessly if possible, though for a full break we often just restart.
+    const audio = isReconnect && isAdSensitive 
+      ? (activeAudioIndexRef.current === 0 ? secondaryAudio : primaryAudio)
+      : (activeAudioIndexRef.current === 0 ? primaryAudio : secondaryAudio);
 
     setSelectedId(station.id);
     lastRequestedStationRef.current = station;
@@ -459,7 +469,13 @@ export default function App() {
     }
 
     const streamPoolKey = stationNameKey(station.name);
-    const streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
+    let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
+    
+    // TOOL: Custom direct-stream bypass for City Radio to avoid ad-injection gaps
+    if (searchKey(station.name).includes("city") && !streamPool.some(u => u.includes("stream.city.bg"))) {
+       streamPool = ["https://stream.city.bg/city.mp3", ...streamPool];
+    }
+
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
     let nextPoolIndex = currentPoolIndex;
     let shouldRotateOnReconnect = isReconnect;
@@ -468,7 +484,6 @@ export default function App() {
       const reconnectPhase = reconnectRefreshPhaseByStationRef.current[station.id] ?? 0;
 
       if (reconnectPhase === 0) {
-        // First reconnect attempt: refresh the same endpoint with cache-busting params.
         shouldRotateOnReconnect = false;
         reconnectRefreshPhaseByStationRef.current[station.id] = 1;
       } else {
@@ -501,11 +516,26 @@ export default function App() {
     const nextSrc = isReconnect
       ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
       : baseSrc;
+    
+    const otherAudio = audio === primaryAudio ? secondaryAudio : primaryAudio;
+
     audio.src = nextSrc;
     audio.load();
 
     try {
       await audio.play();
+      
+      // Swap active pointer
+      activeAudioIndexRef.current = audio === primaryAudio ? 0 : 1;
+      
+      // Stop the other one with a tiny delay to hide the gap
+      setTimeout(() => {
+        if (!audio.paused) {
+          otherAudio.pause();
+          otherAudio.src = "";
+        }
+      }, isAdSensitive ? 10 : 100);
+
       setPlayingId(station.id);
       setPlaybackError(null);
       shouldAutoResumeRef.current = false;
@@ -757,88 +787,142 @@ export default function App() {
         preload="none"
         onPause={() => {
           const recoveryStation = getRecoveryStation();
-          if (!userStoppedRef.current && recoveryStation) {
+          if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 0) {
             shouldAutoResumeRef.current = true;
-
             clearPauseRecoveryTimer();
             pauseRecoveryTimerRef.current = window.setTimeout(() => {
               pauseRecoveryTimerRef.current = null;
-              const audio = audioRef.current;
-              if (!audio || userStoppedRef.current) {
-                return;
-              }
-
-              if (audio.paused) {
+              if (audioRef.current?.paused && !userStoppedRef.current) {
                 scheduleReconnect(recoveryStation);
               }
             }, isMobileDataConnection ? 800 : 1800);
           }
         }}
         onPlaying={() => {
-          reconnectAttemptsRef.current = 0;
-          setPlaybackError(null);
-          shouldAutoResumeRef.current = false;
-          clearReconnectTimer();
-          clearStallTimer();
-          clearPauseRecoveryTimer();
-          const audio = audioRef.current;
-          if (audio) {
+          if (activeAudioIndexRef.current === 0) {
+            reconnectAttemptsRef.current = 0;
+            setPlaybackError(null);
+            shouldAutoResumeRef.current = false;
+            clearReconnectTimer();
+            clearStallTimer();
+            clearPauseRecoveryTimer();
             lastProgressAtRef.current = Date.now();
-            lastProgressPositionRef.current = audio.currentTime;
+            lastProgressPositionRef.current = audioRef.current?.currentTime || 0;
           }
         }}
         onTimeUpdate={() => {
-          const audio = audioRef.current;
-          if (!audio) {
-            return;
-          }
-
-          // Track recent progress to distinguish slow buffering from a real stall.
-          if (audio.currentTime > lastProgressPositionRef.current + 0.15) {
-            lastProgressPositionRef.current = audio.currentTime;
-            lastProgressAtRef.current = Date.now();
+          if (activeAudioIndexRef.current === 0 && audioRef.current) {
+            if (audioRef.current.currentTime > lastProgressPositionRef.current + 0.15) {
+              lastProgressPositionRef.current = audioRef.current.currentTime;
+              lastProgressAtRef.current = Date.now();
+            }
           }
         }}
         onProgress={() => {
-          const audio = audioRef.current;
-          if (audio) {
+          if (activeAudioIndexRef.current === 0) {
             lastProgressAtRef.current = Date.now();
-            lastProgressPositionRef.current = audio.currentTime;
-          }
-          clearPauseRecoveryTimer();
-          if (stallTimerRef.current) {
-            clearStallTimer();
-            setPlaybackError(null);
+            clearPauseRecoveryTimer();
+            if (stallTimerRef.current) {
+              clearStallTimer();
+              setPlaybackError(null);
+            }
           }
         }}
         onWaiting={() => {
-          const station = getRecoveryStation();
-          if (station && !userStoppedRef.current) {
-            scheduleReconnectAfterBuffering(station);
+          if (activeAudioIndexRef.current === 0 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnectAfterBuffering(recoveryStation);
           }
         }}
         onEnded={() => {
-          const station = getRecoveryStation();
-          if (station && !userStoppedRef.current) {
-            scheduleReconnect(station);
-            return;
+          if (activeAudioIndexRef.current === 0 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnect(recoveryStation);
           }
-          setPlayingId(null);
         }}
         onStalled={() => {
-          const station = getRecoveryStation();
-          if (station && !userStoppedRef.current) {
-            scheduleReconnectAfterBuffering(station);
+          if (activeAudioIndexRef.current === 0 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnectAfterBuffering(recoveryStation);
           }
         }}
         onError={() => {
-          const station = getRecoveryStation();
-          if (station && !userStoppedRef.current) {
-            scheduleReconnect(station);
-            return;
+          if (activeAudioIndexRef.current === 0 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnect(recoveryStation);
           }
-          setPlayingId(null);
-          setPlaybackError("Проблем при възпроизвеждане на радио потока.");
+        }}
+      />
+
+      <audio
+        ref={audioSecondaryRef}
+        preload="none"
+        onPause={() => {
+          const recoveryStation = getRecoveryStation();
+          if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 1) {
+            shouldAutoResumeRef.current = true;
+            clearPauseRecoveryTimer();
+            pauseRecoveryTimerRef.current = window.setTimeout(() => {
+              pauseRecoveryTimerRef.current = null;
+              if (audioSecondaryRef.current?.paused && !userStoppedRef.current) {
+                scheduleReconnect(recoveryStation);
+              }
+            }, isMobileDataConnection ? 800 : 1800);
+          }
+        }}
+        onPlaying={() => {
+          if (activeAudioIndexRef.current === 1) {
+            reconnectAttemptsRef.current = 0;
+            setPlaybackError(null);
+            shouldAutoResumeRef.current = false;
+            clearReconnectTimer();
+            clearStallTimer();
+            clearPauseRecoveryTimer();
+            lastProgressAtRef.current = Date.now();
+            lastProgressPositionRef.current = audioSecondaryRef.current?.currentTime || 0;
+          }
+        }}
+        onTimeUpdate={() => {
+          if (activeAudioIndexRef.current === 1 && audioSecondaryRef.current) {
+            if (audioSecondaryRef.current.currentTime > lastProgressPositionRef.current + 0.15) {
+              lastProgressPositionRef.current = audioSecondaryRef.current.currentTime;
+              lastProgressAtRef.current = Date.now();
+            }
+          }
+        }}
+        onProgress={() => {
+          if (activeAudioIndexRef.current === 1) {
+            lastProgressAtRef.current = Date.now();
+            clearPauseRecoveryTimer();
+            if (stallTimerRef.current) {
+              clearStallTimer();
+              setPlaybackError(null);
+            }
+          }
+        }}
+        onWaiting={() => {
+          if (activeAudioIndexRef.current === 1 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnectAfterBuffering(recoveryStation);
+          }
+        }}
+        onEnded={() => {
+          if (activeAudioIndexRef.current === 1 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnect(recoveryStation);
+          }
+        }}
+        onStalled={() => {
+          if (activeAudioIndexRef.current === 1 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnectAfterBuffering(recoveryStation);
+          }
+        }}
+        onError={() => {
+          if (activeAudioIndexRef.current === 1 && !userStoppedRef.current) {
+            const recoveryStation = getRecoveryStation();
+            if (recoveryStation) scheduleReconnect(recoveryStation);
+          }
         }}
       />
 
