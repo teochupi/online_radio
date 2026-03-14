@@ -66,10 +66,15 @@ const PRIORITY_STATION_NAMES = [
   "magic",
   "the voice",
   "radio vitosha",
+  "radio contact",
   "avto radio",
+  "radio 1 bulgaria",
+  "novanews bulgaria",
+  "city radio bulgaria",
+  "btv radio",
+  "euronews bulgaria",
   "radio 1",
   "radio bgradio",
-  "radio contact",
 ];
 
 function mapToStation(station: RadioBrowserStation): Station {
@@ -125,6 +130,10 @@ function prioritizeStations(stations: Station[]): Station[] {
       return a.index - b.index;
     })
     .map((entry) => entry.station);
+}
+
+function isAdBreakSensitiveStation(stationName: string): boolean {
+  return searchKey(stationName).includes("city radio bulgaria");
 }
 
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
@@ -408,6 +417,10 @@ export default function App() {
   };
 
   const markCurrentStreamAsTemporarilyBad = (station: Station) => {
+    if (isAdBreakSensitiveStation(station.name)) {
+      return;
+    }
+
     const currentUrl = currentStreamUrlByStationRef.current[station.id];
     if (!currentUrl) {
       return;
@@ -506,7 +519,8 @@ export default function App() {
     markCurrentStreamAsTemporarilyBad(station);
     clearStallTimer();
 
-    const maxRetries = isMobileDataConnection ? 7 : 4;
+    const isAdSensitive = isAdBreakSensitiveStation(station.name);
+    const maxRetries = isAdSensitive ? 8 : isMobileDataConnection ? 7 : 4;
     if (reconnectAttemptsRef.current >= maxRetries) {
       if (isMobileDataConnection) {
         const cooldownMs = 18000;
@@ -529,8 +543,8 @@ export default function App() {
 
     reconnectAttemptsRef.current += 1;
     const attempt = reconnectAttemptsRef.current;
-    const delayBase = isMobileDataConnection ? 2400 : 1600;
-    const delayCeiling = isMobileDataConnection ? 12000 : 6000;
+    const delayBase = isAdSensitive ? 1200 : isMobileDataConnection ? 2400 : 1600;
+    const delayCeiling = isAdSensitive ? 5000 : isMobileDataConnection ? 12000 : 6000;
     const delay = Math.min(delayBase * attempt, delayCeiling);
     setPlaybackError(`Възстановяване на потока... (${attempt}/${maxRetries})`);
     clearReconnectTimer();
@@ -545,7 +559,11 @@ export default function App() {
     }
 
     // On mobile keep stall window short: ad-transition stream breaks are brief.
-    const stallDelayMs = isMobileDataConnection ? 5000 : 9000;
+    const stallDelayMs = isAdBreakSensitiveStation(station.name)
+      ? 18000
+      : isMobileDataConnection
+        ? 5000
+        : 9000;
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
 
