@@ -192,7 +192,11 @@ function normalizeStations(
   return prioritizeStations(cleaned);
 }
 
-function streamProxyUrl(rawStreamUrl: string): string {
+function streamProxyUrl(rawStreamUrl: string, stationName: string): string {
+  // City Radio and others often block proxies or work better with direct AAC/MP3
+  if (isAdBreakSensitiveStation(stationName)) {
+    return rawStreamUrl;
+  }
   if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
     return rawStreamUrl;
   }
@@ -481,9 +485,9 @@ export default function App() {
     // TOOL: RadioExpert Logic Bypass - Priority for AAC and direct clusters
     if (searchKey(station.name).includes("city")) {
        streamPool = [
-         "https://stream.city.bg:80/city64.aac", // High stability AAC
-         "https://stream.city.bg/city.mp3",    // Direct bypass
-         "https://stream.city.bg:443/city.mp3", // Port 443 often bypasses QoS limits
+         "https://stream.city.bg/city.mp3",    // MP3 Direct
+         "http://149.62.203.11:80/city.aac",   // AAC Direct IP (Ultra stable)
+         "https://stream.city.bg/city",        // Alternate
          ...streamPool
        ];
     }
@@ -524,12 +528,18 @@ export default function App() {
 
     const chosenStreamUrl = streamPool[nextPoolIndex] ?? station.streamUrl;
     currentStreamUrlByStationRef.current[station.id] = chosenStreamUrl;
-    const baseSrc = streamProxyUrl(chosenStreamUrl);
+    
+    // Pass station name to proxy logic to decide if proxy is needed
+    const baseSrc = streamProxyUrl(chosenStreamUrl, station.name);
     const nextSrc = isReconnect
       ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
       : baseSrc;
     
     const otherAudio = audio === primaryAudio ? secondaryAudio : primaryAudio;
+
+    // Reset previous audio faster to ensure clean switch
+    otherAudio.pause();
+    otherAudio.src = "";
 
     audio.src = nextSrc;
     audio.load();
