@@ -149,7 +149,8 @@ function isAdBreakSensitiveStation(stationName: string): boolean {
     key.includes("the voice") ||
     key.includes("vitosha") ||
     key.includes("magic") ||
-    key.includes("radio 1")
+    key.includes("radio 1") ||
+    key.includes("euronews")
   );
 }
 
@@ -460,21 +461,27 @@ export default function App() {
       return;
     }
 
-    // CRITICAL: Stop and CLEAR everything before moving to a new station
-    primaryAudio.pause();
-    primaryAudio.removeAttribute("src");
-    primaryAudio.load();
-    secondaryAudio.pause();
-    secondaryAudio.removeAttribute("src");
-    secondaryAudio.load();
-
+    // For manual station changes, we must halt everything.
+    // For reconnects, we only stop if needed to avoid double-audio.
     if (!isReconnect) {
+      primaryAudio.pause();
+      primaryAudio.removeAttribute("src");
+      primaryAudio.load();
+      secondaryAudio.pause();
+      secondaryAudio.removeAttribute("src");
+      secondaryAudio.load();
+      
       reconnectAttemptsRef.current = 0;
       clearReconnectTimer();
       clearStallTimer();
       clearPauseRecoveryTimer();
       selectedStreamIndexByStationRef.current[station.id] = 0;
       reconnectRefreshPhaseByStationRef.current[station.id] = 0;
+    } else {
+      // During reconnect, just ensure the OTHER player is clear
+      const otherAudio = activeAudioIndexRef.current === 0 ? secondaryAudio : primaryAudio;
+      otherAudio.pause();
+      otherAudio.removeAttribute("src");
     }
     
     // Choose which player to use - if reconnecting, flip it for a fresh buffer.
@@ -497,8 +504,12 @@ export default function App() {
     } else if (lowerName.includes("energy") || lowerName.includes("nrj")) {
        streamPool = ["https://stream.nrj.bg/nrj.mp3", "http://149.62.203.11/nrj.aac", ...streamPool];
     } else if (lowerName.includes("euronews")) {
-       // Euronews often has issues with standard Radio Browser links
-       streamPool = ["https://euronews-bulgarian.streaming-provide.com/euronews_bulgarian.mp3", ...streamPool];
+       // Euronews Bulgaria stable official stream
+       streamPool = [
+         "https://play.euronews.bg/stream",
+         "https://euronews-bulgarian.streaming-provide.com/euronews_bulgarian.mp3",
+         ...streamPool
+       ];
     }
 
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
