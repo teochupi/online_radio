@@ -453,25 +453,15 @@ export default function App() {
     badStreamUntilRef.current[currentUrl] = Date.now() + 2 * 60 * 1000;
   };
 
-  const playStation = async (station: Station, isReconnect = false) => {
-    const primaryAudio = audioRef.current;
-    const secondaryAudio = audioSecondaryRef.current;
-    if (!primaryAudio || !secondaryAudio) {
-      return;
-    }
-
-    const isAdSensitive = isAdBreakSensitiveStation(station.name);
-    
-    // Always toggle between players for a fresh start when NOT a simple reconnect.
-    // This fixed the bug where the same station was heard everywhere.
-    const audio = activeAudioIndexRef.current === 0 ? secondaryAudio : primaryAudio;
-    const otherAudio = audio === primaryAudio ? secondaryAudio : primaryAudio;
-
-    setSelectedId(station.id);
-    lastRequestedStationRef.current = station;
-    setPlaybackError(null);
+    primaryAudio.pause();
+    secondaryAudio.pause();
 
     if (!isReconnect) {
+      primaryAudio.removeAttribute("src");
+      primaryAudio.load();
+      secondaryAudio.removeAttribute("src");
+      secondaryAudio.load();
+      
       reconnectAttemptsRef.current = 0;
       clearReconnectTimer();
       clearStallTimer();
@@ -479,6 +469,14 @@ export default function App() {
       selectedStreamIndexByStationRef.current[station.id] = 0;
       reconnectRefreshPhaseByStationRef.current[station.id] = 0;
     }
+    
+    // Choose which player to use - if reconnecting, flip it for a fresh buffer.
+    const audio = activeAudioIndexRef.current === 0 ? secondaryAudio : primaryAudio;
+    const nextIndex = audio === primaryAudio ? 0 : 1;
+
+    setSelectedId(station.id);
+    lastRequestedStationRef.current = station;
+    setPlaybackError(null);
 
     const streamPoolKey = stationNameKey(station.name);
     let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
@@ -522,19 +520,12 @@ export default function App() {
       ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
       : baseSrc;
     
-    // Stop and clear the PREVIOUS player completely
-    otherAudio.pause();
-    otherAudio.removeAttribute("src");
-    otherAudio.load();
-
     audio.src = nextSrc;
     audio.load();
 
     try {
+      activeAudioIndexRef.current = nextIndex;
       await audio.play();
-      
-      // Successfully playing - update the global pointer
-      activeAudioIndexRef.current = audio === primaryAudio ? 0 : 1;
       
       setPlayingId(station.id);
       setPlaybackError(null);
