@@ -19,52 +19,64 @@ type Station = {
 };
 
 const STATIONS_BG_API_URL =
-  "https://de1.api.radio-browser.info/json/stations/search?countrycode=BG&hidebroken=false&order=votes&reverse=true&limit=500";
+  "https://de1.api.radio-browser.info/json/stations/search?countrycode=BG&hidebroken=true&order=votes&reverse=true&limit=500";
 
 const STATIONS_BG_LANGUAGE_API_URL =
-  "https://de1.api.radio-browser.info/json/stations/bylanguageexact/Bulgarian?hidebroken=false&order=votes&reverse=true&limit=500";
+  "https://de1.api.radio-browser.info/json/stations/bylanguageexact/Bulgarian?hidebroken=true&order=votes&reverse=true&limit=500";
+
+const EXCLUDED_STREAM_URLS = new Set([
+  "https://play.euronews.bg/stream?1710950223133",
+  "https://radio.jump.bg:7028/live",
+  "https://radio.jump.bg:7049/live",
+  "https://radiocp.jump.bg/proxy/stan1?mp=/live",
+  "https://radio.jump.bg:7489/live",
+  "https://radio.mitropolia-sofia.org:7610/stream",
+  "https://stream-40.zeno.fm/hku46gxdexquv?zs=d8gnzJrzS0GpfjuXp_Lx_Q",
+  "https://stream-64.zeno.fm/80qzq207rm0uv?zs=_xFVUn2nS3qDiPZ-lCCmIQ",
+  "https://radio.jump.bg:7181/live",
+]);
 
 const FALLBACK_STATIONS: Station[] = [
   {
     id: "fallback-1",
-    name: "БНР Хоризонт",
-    genre: "Новини",
-    streamUrl: "https://stream.bnr.bg/horizont.mp3",
+    name: "BG Estrada",
+    genre: "Българска музика",
+    streamUrl: "https://play.global.audio/bgestrada",
     bitrate: 128,
   },
   {
     id: "fallback-2",
-    name: "БНР Христо Ботев",
-    genre: "Култура",
-    streamUrl: "https://stream.bnr.bg/botev.mp3",
-    bitrate: 128,
+    name: "MAGIC FM",
+    genre: "Поп",
+    streamUrl: "https://bss1.neterra.tv/magicfm/magicfm.m3u8",
+    bitrate: 105,
   },
   {
     id: "fallback-3",
-    name: "Дарик Радио",
-    genre: "Talk",
-    streamUrl: "https://darikradio.by.host.bg:8000/S2-128",
-    bitrate: 128,
+    name: "Radio The Voice",
+    genre: "Хитове",
+    streamUrl: "https://bss1.neterra.tv/thevoicefm/thevoicefm.m3u8",
+    bitrate: 105,
   },
   {
     id: "fallback-4",
-    name: "N-JOY",
+    name: "Radio Vitosha",
     genre: "Поп",
-    streamUrl: "https://live-radio.btv.bg:8000/njoy.mp3",
-    bitrate: 128,
+    streamUrl: "https://bss1.neterra.tv/vitosha/vitosha.m3u8",
+    bitrate: 105,
   },
   {
     id: "fallback-5",
-    name: "Z-Rock",
-    genre: "Рок",
-    streamUrl: "https://live-radio.btv.bg:8000/zrock.mp3",
-    bitrate: 128,
+    name: "BNR Horizont",
+    genre: "Новини",
+    streamUrl: "https://play.global.audio/testb.aac?dist=RADIOPLAY",
+    bitrate: 48,
   },
   {
-    id: "fallback-city",
-    name: "City Radio",
-    genre: "Поп & Хитове",
-    streamUrl: "https://stream.city.bg/city.mp3",
+    id: "fallback-6",
+    name: "Radio Nova Bulgaria",
+    genre: "Музика",
+    streamUrl: "https://play.global.audio/nova.opus",
     bitrate: 128,
   },
 ];
@@ -154,7 +166,7 @@ function isAdBreakSensitiveStation(stationName: string): boolean {
 
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
   const url = station.url_resolved?.trim();
-  if (!url) {
+  if (!url || EXCLUDED_STREAM_URLS.has(url)) {
     return false;
   }
 
@@ -162,8 +174,6 @@ function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean
     return false;
   }
 
-  // On GitHub Pages we can only play secure streams due to browser mixed-content rules.
-  // Codec metadata in the API is often missing/inconsistent, so we avoid strict codec filtering.
   return true;
 }
 
@@ -409,6 +419,10 @@ export default function App() {
     setSelectedId(station.id);
   };
 
+  const clearSearch = () => {
+    setSearchQuery("");
+  };
+
   const getRecoveryStation = () => {
     return playingStation ?? lastRequestedStationRef.current ?? currentStation ?? null;
   };
@@ -432,6 +446,33 @@ export default function App() {
       window.clearTimeout(pauseRecoveryTimerRef.current);
       pauseRecoveryTimerRef.current = null;
     }
+  };
+
+  const resetAudioElement = (audio: HTMLAudioElement, shouldLoad = true) => {
+    audio.pause();
+    audio.removeAttribute("src");
+    if (shouldLoad) {
+      audio.load();
+    }
+  };
+
+  const stopPlayback = () => {
+    const primaryAudio = audioRef.current;
+    const secondaryAudio = audioSecondaryRef.current;
+    if (!primaryAudio || !secondaryAudio) {
+      return;
+    }
+
+    userStoppedRef.current = true;
+    hasUserInitiatedPlaybackRef.current = false;
+    shouldAutoResumeRef.current = false;
+    clearReconnectTimer();
+    clearStallTimer();
+    clearPauseRecoveryTimer();
+    resetAudioElement(primaryAudio);
+    resetAudioElement(secondaryAudio);
+    setPlayingId(null);
+    setPlaybackError(null);
   };
 
   const markCurrentStreamAsTemporarilyBad = (station: Station) => {
@@ -458,12 +499,8 @@ export default function App() {
     // For manual station changes, we must halt everything.
     // For reconnects, we only stop if needed to avoid double-audio.
     if (!isReconnect) {
-      primaryAudio.pause();
-      primaryAudio.removeAttribute("src");
-      primaryAudio.load();
-      secondaryAudio.pause();
-      secondaryAudio.removeAttribute("src");
-      secondaryAudio.load();
+      resetAudioElement(primaryAudio);
+      resetAudioElement(secondaryAudio);
       
       reconnectAttemptsRef.current = 0;
       clearReconnectTimer();
@@ -474,8 +511,7 @@ export default function App() {
     } else {
       // During reconnect, just ensure the OTHER player is clear
       const otherAudio = activeAudioIndexRef.current === 0 ? secondaryAudio : primaryAudio;
-      otherAudio.pause();
-      otherAudio.removeAttribute("src");
+      resetAudioElement(otherAudio, false);
     }
     
     // Choose which player to use - if reconnecting, flip it for a fresh buffer.
@@ -490,8 +526,17 @@ export default function App() {
     let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     
     // TOOL: Custom direct-stream bypass for City Radio to avoid ad-injection gaps
-    if (searchKey(station.name).includes("city") && !streamPool.some(u => u.includes("stream.city.bg"))) {
-       streamPool = ["https://stream.city.bg/city.mp3", ...streamPool];
+    if (searchKey(station.name).includes("city") && !streamPool.some((u) => u.includes("stream.city.bg"))) {
+      streamPool = ["https://stream.city.bg/city.mp3", ...streamPool];
+    }
+
+    const now = Date.now();
+    const healthyStreamPool = streamPool.filter((url) => {
+      const badUntil = badStreamUntilRef.current[url];
+      return !badUntil || badUntil <= now;
+    });
+    if (healthyStreamPool.length > 0) {
+      streamPool = healthyStreamPool;
     }
 
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
@@ -627,19 +672,7 @@ export default function App() {
     userStoppedRef.current = false;
 
     if (playingId === station.id) {
-      userStoppedRef.current = true;
-      hasUserInitiatedPlaybackRef.current = false;
-      shouldAutoResumeRef.current = false;
-      clearReconnectTimer();
-      clearStallTimer();
-      
-      primaryAudio.pause();
-      primaryAudio.removeAttribute("src");
-      secondaryAudio.pause();
-      secondaryAudio.removeAttribute("src");
-      
-      setPlayingId(null);
-      setPlaybackError(null);
+      stopPlayback();
       return;
     }
 
@@ -751,33 +784,9 @@ export default function App() {
       playStation(playingStation, true);
     });
 
-    mediaSession.setActionHandler("pause", () => {
-      const audio = audioRef.current;
-      if (!audio) {
-        return;
-      }
-      userStoppedRef.current = true;
-      hasUserInitiatedPlaybackRef.current = false;
-      shouldAutoResumeRef.current = false;
-      clearReconnectTimer();
-      clearStallTimer();
-      audio.pause();
-      setPlayingId(null);
-    });
+    mediaSession.setActionHandler("pause", stopPlayback);
 
-    mediaSession.setActionHandler("stop", () => {
-      const audio = audioRef.current;
-      if (!audio) {
-        return;
-      }
-      userStoppedRef.current = true;
-      hasUserInitiatedPlaybackRef.current = false;
-      shouldAutoResumeRef.current = false;
-      clearReconnectTimer();
-      clearStallTimer();
-      audio.pause();
-      setPlayingId(null);
-    });
+    mediaSession.setActionHandler("stop", stopPlayback);
 
     return () => {
       mediaSession.setActionHandler("play", null);
@@ -1018,7 +1027,7 @@ export default function App() {
                   onClick={() => handlePlayToggle(station)}
                   aria-label={isPlaying ? `Спри ${station.name}` : `Пусни ${station.name}`}
                 >
-                  <span>{isPlaying ? "PAUSE" : "PLAY"}</span>
+                  <span>{isPlaying ? "?????" : "?????"}</span>
                 </button>
               </article>
             );

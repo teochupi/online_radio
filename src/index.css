@@ -121,6 +121,27 @@ body {
   outline: none;
 }
 
+.search-clear-btn {
+  border: 1px solid rgba(129, 187, 235, 0.45);
+  border-radius: 999px;
+  background: rgba(11, 42, 72, 0.72);
+  color: #dcefff;
+  padding: 0.22rem 0.62rem;
+  font-size: 0.74rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.search-clear-btn:hover {
+  border-color: rgba(167, 219, 255, 0.84);
+  background: rgba(15, 56, 92, 0.82);
+}
+
+.search-clear-btn:focus-visible {
+  outline: 2px solid #95d6ff;
+  outline-offset: 2px;
+}
+
 .search-suggestions {
   display: flex;
   flex-wrap: wrap;

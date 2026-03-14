@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+﻿import { render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import App from "./App";
 
@@ -30,6 +30,6 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.queryByText(/Зареждане на станции/i)).not.toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: /БНР Хоризонт/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Пусни /i }).length).toBeGreaterThan(0);
   });
 });
