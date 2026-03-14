@@ -148,7 +148,8 @@ function isAdBreakSensitiveStation(stationName: string): boolean {
     key.includes("energy") ||
     key.includes("the voice") ||
     key.includes("vitosha") ||
-    key.includes("magic")
+    key.includes("magic") ||
+    key.includes("radio 1")
   );
 }
 
@@ -460,11 +461,11 @@ export default function App() {
     }
 
     const isAdSensitive = isAdBreakSensitiveStation(station.name);
-    // When reconnecting an ad-sensitive station, we prepare the OTHER player 
-    // to swap seamlessly if possible, though for a full break we often just restart.
-    const audio = isReconnect && isAdSensitive 
-      ? (activeAudioIndexRef.current === 0 ? secondaryAudio : primaryAudio)
-      : (activeAudioIndexRef.current === 0 ? primaryAudio : secondaryAudio);
+    
+    // Always toggle between players for a fresh start when NOT a simple reconnect.
+    // This fixed the bug where the same station was heard everywhere.
+    const audio = activeAudioIndexRef.current === 0 ? secondaryAudio : primaryAudio;
+    const otherAudio = audio === primaryAudio ? secondaryAudio : primaryAudio;
 
     setSelectedId(station.id);
     lastRequestedStationRef.current = station;
@@ -482,14 +483,14 @@ export default function App() {
     const streamPoolKey = stationNameKey(station.name);
     let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     
-    // TOOL: RadioExpert Logic Bypass - Priority for AAC and direct clusters
-    if (searchKey(station.name).includes("city")) {
-       streamPool = [
-         "https://stream.city.bg/city.mp3",    // MP3 Direct
-         "http://149.62.203.11:80/city.aac",   // AAC Direct IP (Ultra stable)
-         "https://stream.city.bg/city",        // Alternate
-         ...streamPool
-       ];
+    // Stability Cluster for major BG stations (RadioExpert/Direct logic)
+    const lowerName = searchKey(station.name);
+    if (lowerName.includes("city")) {
+       streamPool = ["https://stream.city.bg/city.mp3", "http://149.62.203.11/city.aac", ...streamPool];
+    } else if (lowerName.includes("magic")) {
+       streamPool = ["https://stream.magic.bg/magic.mp3", "http://149.62.203.11/magic.aac", ...streamPool];
+    } else if (lowerName.includes("energy") || lowerName.includes("nrj")) {
+       streamPool = ["https://stream.nrj.bg/nrj.mp3", "http://149.62.203.11/nrj.aac", ...streamPool];
     }
 
     const currentPoolIndex = selectedStreamIndexByStationRef.current[station.id] ?? 0;
@@ -498,7 +499,6 @@ export default function App() {
 
     if (isReconnect && streamPool.length > 1) {
       const reconnectPhase = reconnectRefreshPhaseByStationRef.current[station.id] ?? 0;
-
       if (reconnectPhase === 0) {
         shouldRotateOnReconnect = false;
         reconnectRefreshPhaseByStationRef.current[station.id] = 1;
@@ -512,34 +512,20 @@ export default function App() {
       nextPoolIndex = (currentPoolIndex + 1) % Math.max(streamPool.length, 1);
     }
 
-    if (shouldRotateOnReconnect && streamPool.length > 1) {
-      for (let offset = 0; offset < streamPool.length; offset += 1) {
-        const candidateIndex = (nextPoolIndex + offset) % streamPool.length;
-        const candidateUrl = streamPool[candidateIndex];
-        const blockedUntil = badStreamUntilRef.current[candidateUrl] ?? 0;
-        if (blockedUntil <= Date.now()) {
-          nextPoolIndex = candidateIndex;
-          break;
-        }
-      }
-    }
-
     selectedStreamIndexByStationRef.current[station.id] = nextPoolIndex;
 
     const chosenStreamUrl = streamPool[nextPoolIndex] ?? station.streamUrl;
     currentStreamUrlByStationRef.current[station.id] = chosenStreamUrl;
     
-    // Pass station name to proxy logic to decide if proxy is needed
     const baseSrc = streamProxyUrl(chosenStreamUrl, station.name);
     const nextSrc = isReconnect
       ? `${baseSrc}${baseSrc.includes("?") ? "&" : "?"}retry=${Date.now()}`
       : baseSrc;
     
-    const otherAudio = audio === primaryAudio ? secondaryAudio : primaryAudio;
-
-    // Reset previous audio faster to ensure clean switch
+    // Stop and clear the PREVIOUS player completely
     otherAudio.pause();
-    otherAudio.src = "";
+    otherAudio.removeAttribute("src");
+    otherAudio.load();
 
     audio.src = nextSrc;
     audio.load();
@@ -547,17 +533,9 @@ export default function App() {
     try {
       await audio.play();
       
-      // Swap active pointer
+      // Successfully playing - update the global pointer
       activeAudioIndexRef.current = audio === primaryAudio ? 0 : 1;
       
-      // Stop the other one with a tiny delay to hide the gap
-      setTimeout(() => {
-        if (!audio.paused) {
-          otherAudio.pause();
-          otherAudio.src = "";
-        }
-      }, isAdSensitive ? 10 : 100);
-
       setPlayingId(station.id);
       setPlaybackError(null);
       shouldAutoResumeRef.current = false;
