@@ -553,6 +553,11 @@ export default function App() {
       shouldAutoResumeRef.current = false;
       reconnectRefreshPhaseByStationRef.current[station.id] = 0;
     } catch {
+      // If the user already switched to another station, abort this old play promise
+      if (lastRequestedStationRef.current?.id !== station.id) {
+        return;
+      }
+      
       if (!userStoppedRef.current) {
         scheduleReconnect(station);
         return;
@@ -563,7 +568,7 @@ export default function App() {
   };
 
   const scheduleReconnect = (station: Station) => {
-    if (userStoppedRef.current) {
+    if (userStoppedRef.current || lastRequestedStationRef.current?.id !== station.id) {
       return;
     }
 
@@ -602,7 +607,7 @@ export default function App() {
   };
 
   const scheduleReconnectAfterBuffering = (station: Station) => {
-    if (userStoppedRef.current || stallTimerRef.current) {
+    if (userStoppedRef.current || stallTimerRef.current || lastRequestedStationRef.current?.id !== station.id) {
       return;
     }
 
