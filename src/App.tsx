@@ -559,32 +559,29 @@ export default function App() {
     clearStallTimer();
 
     const isAdSensitive = isAdBreakSensitiveStation(station.name);
-    const maxRetries = isAdSensitive ? 8 : isMobileDataConnection ? 7 : 4;
+    // CRITICAL: Never stop trying for City and other ad-sensitive stations or on mobile data.
+    // We remove the hard limit and replace it with a continuous cycle.
+    const maxRetries = isAdSensitive ? 9999 : (isMobileDataConnection ? 9999 : 6);
+    
     if (reconnectAttemptsRef.current >= maxRetries) {
-      if (isMobileDataConnection) {
-        const cooldownMs = 18000;
-        reconnectAttemptsRef.current = 0;
-        setPlaybackError("Нестабилна връзка. Нов опит след няколко секунди...");
-        clearReconnectTimer();
-        reconnectTimerRef.current = window.setTimeout(() => {
-          const recoveryStation = getRecoveryStation();
-          if (recoveryStation && !userStoppedRef.current) {
-            playStation(recoveryStation, true);
-          }
-        }, cooldownMs);
-        return;
-      }
-
-      setPlaybackError("Връзката към станцията е нестабилна. Опитайте друга станция.");
+      setPlaybackError("Връзката е прекъсната. Опитайте друга станция.");
       setPlayingId(null);
       return;
     }
 
+    reconnectAttemptsRef.current += 1;
+
     const attempt = reconnectAttemptsRef.current;
-    const delayBase = isAdSensitive ? 1000 : isMobileDataConnection ? 2000 : 1500;
-    const delayCeiling = isAdSensitive ? 4000 : isMobileDataConnection ? 10000 : 6000;
+    // Keep internal delays low so user doesn't wait long.
+    const delayBase = isAdSensitive ? 800 : (isMobileDataConnection ? 1200 : 1500);
+    const delayCeiling = isAdSensitive ? 3000 : (isMobileDataConnection ? 5000 : 6000);
     const delay = Math.min(delayBase * attempt, delayCeiling);
-    setPlaybackError(`Възстановяване на потока... (${attempt}/${maxRetries})`);
+    
+    if (attempt > 5) {
+        setPlaybackError(`Слаба връзка. Автоматичен опит за свързване...`);
+    } else {
+        setPlaybackError(`Възстановяване на потока...`);
+    }
     clearReconnectTimer();
     reconnectTimerRef.current = window.setTimeout(() => {
       playStation(station, true);
