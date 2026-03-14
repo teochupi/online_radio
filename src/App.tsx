@@ -603,7 +603,7 @@ export default function App() {
     stallTimerRef.current = window.setTimeout(() => {
       stallTimerRef.current = null;
 
-      const audio = audioRef.current;
+      const audio = activeAudioIndexRef.current === 0 ? audioRef.current : audioSecondaryRef.current;
       if (audio && !audio.paused) {
         const progressedRecently =
           audio.currentTime > lastProgressPositionRef.current + 0.15 ||
@@ -619,8 +619,9 @@ export default function App() {
   };
 
   const handlePlayToggle = async (station: Station) => {
-    const audio = audioRef.current;
-    if (!audio) {
+    const primaryAudio = audioRef.current;
+    const secondaryAudio = audioSecondaryRef.current;
+    if (!primaryAudio || !secondaryAudio) {
       return;
     }
 
@@ -632,7 +633,12 @@ export default function App() {
       shouldAutoResumeRef.current = false;
       clearReconnectTimer();
       clearStallTimer();
-      audio.pause();
+      
+      primaryAudio.pause();
+      primaryAudio.removeAttribute("src");
+      secondaryAudio.pause();
+      secondaryAudio.removeAttribute("src");
+      
       setPlayingId(null);
       setPlaybackError(null);
       return;
