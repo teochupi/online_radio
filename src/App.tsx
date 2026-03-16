@@ -168,6 +168,33 @@ function isCityStation(stationName: string): boolean {
   return searchKey(stationName).includes("city");
 }
 
+function isMobileOptimizedFormat(station: RadioBrowserStation): boolean {
+  const codec = String(station.codec || "").toLowerCase();
+  const url = String(station.url_resolved || "").toLowerCase();
+
+  return (
+    codec.includes("aac") ||
+    codec.includes("opus") ||
+    url.includes(".m3u8") ||
+    url.includes("hls")
+  );
+}
+
+function mobileStreamPriority(station: RadioBrowserStation): number {
+  const rawBitrate = station.bitrate ?? 0;
+  const bitratePenalty =
+    rawBitrate === 0 ? 1 : rawBitrate <= 96 ? 0 : rawBitrate <= 128 ? 1 : rawBitrate <= 192 ? 2 : 3;
+  const formatPenalty = isMobileOptimizedFormat(station) ? 0 : 2;
+  return bitratePenalty + formatPenalty;
+}
+
+function withPreferredCityEndpoints(streamPool: string[]): string[] {
+  const preferredCityUrls = ["https://stream.city.bg/city.mp3"];
+  return [...preferredCityUrls, ...streamPool].filter(
+    (url, index, all) => all.indexOf(url) === index
+  );
+}
+
 function isLikelyWebPlayable(station: RadioBrowserStation, requireHttps: boolean): boolean {
   const url = station.url_resolved?.trim();
   if (!url || EXCLUDED_STREAM_URLS.has(url)) {
@@ -240,6 +267,7 @@ export default function App() {
   const userStoppedRef = useRef(false);
   const shouldAutoResumeRef = useRef(false);
   const [isMobileDataConnection, setIsMobileDataConnection] = useState(false);
+  const [connectionEffectiveType, setConnectionEffectiveType] = useState("");
   const requireHttps =
     typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
 
@@ -258,6 +286,7 @@ export default function App() {
       const isCellularLike = ["slow-2g", "2g", "3g", "4g", "5g"].includes(effectiveType);
 
       setIsMobileDataConnection(isCellularLike);
+      setConnectionEffectiveType(effectiveType);
     };
 
     updateConnectionFlags();
@@ -325,13 +354,34 @@ export default function App() {
   }, [allStations, requireHttps]);
 
   const stationStreamPools = useMemo(() => {
-    const poolMaxBitrate = isMobileDataConnection ? 192 : 320;
+    const isSlowMobileConnection =
+      isMobileDataConnection &&
+      ["slow-2g", "2g", "3g"].includes(connectionEffectiveType);
     const entries = allStations
       .filter((item) => item.url_resolved && item.name)
       .filter((item) => isLikelyWebPlayable(item, requireHttps))
-      .filter((item) => item.bitrate === 0 || item.bitrate <= poolMaxBitrate)
+      .filter((item) => {
+        if (item.bitrate === 0) {
+          return true;
+        }
+
+        const stationIsCity = isCityStation(item.name || "");
+        const poolMaxBitrate = isMobileDataConnection
+          ? stationIsCity || isSlowMobileConnection
+            ? 128
+            : 192
+          : 320;
+        return item.bitrate <= poolMaxBitrate;
+      })
       .slice()
       .sort((a, b) => {
+        if (isMobileDataConnection) {
+          const mobileSort = mobileStreamPriority(a) - mobileStreamPriority(b);
+          if (mobileSort !== 0) {
+            return mobileSort;
+          }
+        }
+
         const aBitrate = a.bitrate === 0 ? 999 : a.bitrate;
         const bBitrate = b.bitrate === 0 ? 999 : b.bitrate;
         if (aBitrate !== bBitrate) {
@@ -361,7 +411,7 @@ export default function App() {
     }
 
     return grouped;
-  }, [allStations, requireHttps, isMobileDataConnection]);
+  }, [allStations, requireHttps, isMobileDataConnection, connectionEffectiveType]);
 
   useEffect(() => {
     if (stations.some((station) => station.id === selectedId)) {
@@ -529,14 +579,15 @@ export default function App() {
     const streamPoolKey = stationNameKey(station.name);
     let streamPool = stationStreamPools.get(streamPoolKey) ?? [station.streamUrl];
     
-    // Keep the direct City endpoint only on non-mobile connections.
-    // On mobile networks this endpoint is more prone to short ad/segment dropouts.
-    if (
-      isCityStation(station.name) &&
-      !isMobileDataConnection &&
-      !streamPool.some((u) => u.includes("stream.city.bg"))
-    ) {
-      streamPool = ["https://stream.city.bg/city.mp3", ...streamPool];
+    const isCity = isCityStation(station.name);
+    if (isCity) {
+      streamPool = withPreferredCityEndpoints(streamPool);
+
+      // Mobile data is more sensitive to endpoint hopping.
+      // Keep a small, stable pool for City to reduce reconnect churn.
+      if (isMobileDataConnection) {
+        streamPool = streamPool.slice(0, 2);
+      }
     }
 
     const now = Date.now();
@@ -552,7 +603,10 @@ export default function App() {
     let nextPoolIndex = currentPoolIndex;
     let shouldRotateOnReconnect = isReconnect;
 
-    if (isReconnect && streamPool.length > 1) {
+    if (isReconnect && isCity && isMobileDataConnection) {
+      shouldRotateOnReconnect = false;
+      reconnectRefreshPhaseByStationRef.current[station.id] = 0;
+    } else if (isReconnect && streamPool.length > 1) {
       const reconnectPhase = reconnectRefreshPhaseByStationRef.current[station.id] ?? 0;
       if (reconnectPhase === 0) {
         shouldRotateOnReconnect = false;
@@ -658,7 +712,7 @@ export default function App() {
     const isAdSensitive = isAdBreakSensitiveStation(station.name);
     const isCity = isCityStation(station.name);
     const stallDelayMs = isCity && isMobileDataConnection
-      ? 7000
+      ? 9000
       : isAdSensitive
         ? (isMobileDataConnection ? 2000 : 3000)
         : (isMobileDataConnection ? 4000 : 6000);
@@ -667,7 +721,7 @@ export default function App() {
 
       const audio = activeAudioIndexRef.current === 0 ? audioRef.current : audioSecondaryRef.current;
       if (audio && !audio.paused) {
-        const minRecentProgressMs = isCity && isMobileDataConnection ? 10000 : (isMobileDataConnection ? 6000 : 4000);
+        const minRecentProgressMs = isCity && isMobileDataConnection ? 14000 : (isMobileDataConnection ? 6000 : 4000);
         const progressedRecently =
           audio.currentTime > lastProgressPositionRef.current + 0.15 ||
           Date.now() - lastProgressAtRef.current < minRecentProgressMs;
@@ -714,9 +768,9 @@ export default function App() {
 
     const isAdSensitive = playingStation ? isAdBreakSensitiveStation(playingStation.name) : false;
     const isCity = playingStation ? isCityStation(playingStation.name) : false;
-    const intervalMs = isCity && isMobileDataConnection ? 5000 : (isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000));
+    const intervalMs = isCity && isMobileDataConnection ? 7000 : (isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000));
     const staleProgressMs = isCity && isMobileDataConnection
-      ? 12000
+      ? 20000
       : isAdSensitive
         ? 6000
         : (isMobileDataConnection ? 15000 : 18000);
@@ -829,7 +883,7 @@ export default function App() {
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 0) {
             const pauseRecoveryDelayMs =
               isCityStation(recoveryStation.name) && isMobileDataConnection
-                ? 2500
+                ? 9000
                 : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
@@ -905,7 +959,7 @@ export default function App() {
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 1) {
             const pauseRecoveryDelayMs =
               isCityStation(recoveryStation.name) && isMobileDataConnection
-                ? 2500
+                ? 9000
                 : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
