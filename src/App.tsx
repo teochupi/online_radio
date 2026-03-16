@@ -188,9 +188,9 @@ function mobileStreamPriority(station: RadioBrowserStation): number {
   return bitratePenalty + formatPenalty;
 }
 
-function withPreferredCityEndpoints(streamPool: string[]): string[] {
-  const preferredCityUrls = ["https://stream.city.bg/city.mp3"];
-  return [...preferredCityUrls, ...streamPool].filter(
+function withCityFallbackEndpoints(streamPool: string[]): string[] {
+  const fallbackCityUrls = ["https://stream.city.bg/city.mp3"];
+  return [...streamPool, ...fallbackCityUrls].filter(
     (url, index, all) => all.indexOf(url) === index
   );
 }
@@ -581,7 +581,7 @@ export default function App() {
     
     const isCity = isCityStation(station.name);
     if (isCity) {
-      streamPool = withPreferredCityEndpoints(streamPool);
+      streamPool = withCityFallbackEndpoints(streamPool);
 
       // Mobile data is more sensitive to endpoint hopping.
       // Keep a small, stable pool for City to reduce reconnect churn.
@@ -603,10 +603,7 @@ export default function App() {
     let nextPoolIndex = currentPoolIndex;
     let shouldRotateOnReconnect = isReconnect;
 
-    if (isReconnect && isCity && isMobileDataConnection) {
-      shouldRotateOnReconnect = false;
-      reconnectRefreshPhaseByStationRef.current[station.id] = 0;
-    } else if (isReconnect && streamPool.length > 1) {
+    if (isReconnect && streamPool.length > 1) {
       const reconnectPhase = reconnectRefreshPhaseByStationRef.current[station.id] ?? 0;
       if (reconnectPhase === 0) {
         shouldRotateOnReconnect = false;
