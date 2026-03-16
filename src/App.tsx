@@ -356,7 +356,7 @@ export default function App() {
   const stationStreamPools = useMemo(() => {
     const isSlowMobileConnection =
       isMobileDataConnection &&
-      ["slow-2g", "2g", "3g"].includes(connectionEffectiveType);
+      ["slow-2g", "2g", "3g", "4g"].includes(connectionEffectiveType);
     const entries = allStations
       .filter((item) => item.url_resolved && item.name)
       .filter((item) => isLikelyWebPlayable(item, requireHttps))
