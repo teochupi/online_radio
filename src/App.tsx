@@ -681,7 +681,7 @@ export default function App() {
     // We want a CONSTANT, fast retry cycle (e.g. 2-3 seconds) to avoid the 15-20s gaps you observed.
     const delay =
       isCity && isMobileDataConnection
-        ? 4500
+        ? 2000
         : isAdSensitive
           ? 2000
           : isMobileDataConnection
@@ -709,7 +709,7 @@ export default function App() {
     const isAdSensitive = isAdBreakSensitiveStation(station.name);
     const isCity = isCityStation(station.name);
     const stallDelayMs = isCity && isMobileDataConnection
-      ? 9000
+      ? 3000
       : isAdSensitive
         ? (isMobileDataConnection ? 2000 : 3000)
         : (isMobileDataConnection ? 4000 : 6000);
@@ -718,7 +718,7 @@ export default function App() {
 
       const audio = activeAudioIndexRef.current === 0 ? audioRef.current : audioSecondaryRef.current;
       if (audio && !audio.paused) {
-        const minRecentProgressMs = isCity && isMobileDataConnection ? 14000 : (isMobileDataConnection ? 6000 : 4000);
+        const minRecentProgressMs = isCity && isMobileDataConnection ? 7000 : (isMobileDataConnection ? 6000 : 4000);
         const progressedRecently =
           audio.currentTime > lastProgressPositionRef.current + 0.15 ||
           Date.now() - lastProgressAtRef.current < minRecentProgressMs;
@@ -765,9 +765,9 @@ export default function App() {
 
     const isAdSensitive = playingStation ? isAdBreakSensitiveStation(playingStation.name) : false;
     const isCity = playingStation ? isCityStation(playingStation.name) : false;
-    const intervalMs = isCity && isMobileDataConnection ? 7000 : (isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000));
+    const intervalMs = isCity && isMobileDataConnection ? 4000 : (isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000));
     const staleProgressMs = isCity && isMobileDataConnection
-      ? 20000
+      ? 9000
       : isAdSensitive
         ? 6000
         : (isMobileDataConnection ? 15000 : 18000);
@@ -880,7 +880,7 @@ export default function App() {
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 0) {
             const pauseRecoveryDelayMs =
               isCityStation(recoveryStation.name) && isMobileDataConnection
-                ? 9000
+                ? 2000
                 : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
@@ -956,7 +956,7 @@ export default function App() {
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 1) {
             const pauseRecoveryDelayMs =
               isCityStation(recoveryStation.name) && isMobileDataConnection
-                ? 9000
+                ? 2000
                 : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
