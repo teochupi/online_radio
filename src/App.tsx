@@ -681,7 +681,7 @@ export default function App() {
     // We want a CONSTANT, fast retry cycle (e.g. 2-3 seconds) to avoid the 15-20s gaps you observed.
     const delay =
       isCity && isMobileDataConnection
-        ? 2000
+        ? 1200
         : isAdSensitive
           ? 2000
           : isMobileDataConnection
@@ -708,6 +708,11 @@ export default function App() {
     // when they break during ad insertion transitions.
     const isAdSensitive = isAdBreakSensitiveStation(station.name);
     const isCity = isCityStation(station.name);
+    if (isCity && isMobileDataConnection) {
+      scheduleReconnect(station);
+      return;
+    }
+
     const stallDelayMs = isCity && isMobileDataConnection
       ? 3000
       : isAdSensitive
@@ -765,9 +770,9 @@ export default function App() {
 
     const isAdSensitive = playingStation ? isAdBreakSensitiveStation(playingStation.name) : false;
     const isCity = playingStation ? isCityStation(playingStation.name) : false;
-    const intervalMs = isCity && isMobileDataConnection ? 4000 : (isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000));
+    const intervalMs = isCity && isMobileDataConnection ? 2500 : (isAdSensitive ? 4000 : (isMobileDataConnection ? 8000 : 12000));
     const staleProgressMs = isCity && isMobileDataConnection
-      ? 9000
+      ? 5000
       : isAdSensitive
         ? 6000
         : (isMobileDataConnection ? 15000 : 18000);
@@ -880,7 +885,7 @@ export default function App() {
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 0) {
             const pauseRecoveryDelayMs =
               isCityStation(recoveryStation.name) && isMobileDataConnection
-                ? 2000
+                ? 1000
                 : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
@@ -956,7 +961,7 @@ export default function App() {
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 1) {
             const pauseRecoveryDelayMs =
               isCityStation(recoveryStation.name) && isMobileDataConnection
-                ? 2000
+                ? 1000
                 : (isMobileDataConnection ? 800 : 1800);
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
