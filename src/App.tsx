@@ -959,10 +959,12 @@ export default function App() {
         onPause={() => {
           const recoveryStation = getRecoveryStation();
           if (!userStoppedRef.current && recoveryStation && activeAudioIndexRef.current === 1) {
-            const pauseRecoveryDelayMs =
-              isCityStation(recoveryStation.name) && isMobileDataConnection
-                ? 1000
-                : (isMobileDataConnection ? 800 : 1800);
+            if (isCityStation(recoveryStation.name) && isMobileDataConnection) {
+              scheduleReconnect(recoveryStation);
+              return;
+            }
+            
+            const pauseRecoveryDelayMs = isMobileDataConnection ? 800 : 1800;
             shouldAutoResumeRef.current = true;
             clearPauseRecoveryTimer();
             pauseRecoveryTimerRef.current = window.setTimeout(() => {
