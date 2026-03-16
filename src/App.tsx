@@ -89,7 +89,7 @@ const PRIORITY_STATION_NAMES = [
   "avto radio",
   "radio 1 bulgaria",
   "novanews bulgaria",
-  "city radio bulgaria",
+  "nrg",
   "n-joy",
   "zorana",
   "btv radio",
@@ -214,6 +214,7 @@ function normalizeStations(
 ): Station[] {
   const cleaned = stations
     .filter((item) => item.url_resolved && item.name)
+    .filter((item) => !isCityStation(item.name || ""))
     .filter((item) => isLikelyWebPlayable(item, requireHttps))
     .filter((item) => item.bitrate === 0 || item.bitrate <= 320)
     .filter((item, index, all) => all.findIndex((candidate) => candidate.url_resolved === item.url_resolved) === index)
@@ -359,6 +360,7 @@ export default function App() {
       ["slow-2g", "2g", "3g", "4g"].includes(connectionEffectiveType);
     const entries = allStations
       .filter((item) => item.url_resolved && item.name)
+      .filter((item) => !isCityStation(item.name || ""))
       .filter((item) => isLikelyWebPlayable(item, requireHttps))
       .filter((item) => {
         if (item.bitrate === 0) {
